@@ -1,0 +1,42 @@
+{
+  "name": "wardy",
+  "displayName": "wardy",
+  "description": "wardy VS Code extension",
+  "version": "0.0.1",
+  "publisher": "Wardy",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YOUR_USER/YOUR_REPO"
+  },
+  "engines": {
+    "vscode": "^1.98.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "icon": "src/wardyicon.svg",
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "wardy.helloWorld",
+        "title": "Hello World"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.98.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "eslint": "^9.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0"
+  }
+}
