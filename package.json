@@ -15,7 +15,7 @@
     "Other"
   ],
   "activationEvents": [],
-  "icon": "src/wardyicon.svg",
+  "icon": "src/wardyicon.png",
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
