@@ -2,7 +2,7 @@
   "name": "wardy",
   "displayName": "wardy",
   "description": "wardy VS Code extension",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "publisher": "Wardy",
   "repository": {
     "type": "git",
@@ -14,10 +14,30 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
-  "icon": "src/wardyicon.png",
+  "activationEvents": [
+    "onView:wardy.sidebar"
+  ],
+  "icon": "src/wardyext.png",
   "main": "./out/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "wardy-sidebar",
+          "title": "Wardy",
+          "icon": "src/wardyext.png"
+        }
+      ]
+    },
+    "views": {
+      "wardy-sidebar": [
+        {
+          "type": "tree",
+          "id": "wardy.sidebar",
+          "name": "Wardy"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "wardy.helloWorld",
