@@ -1,4 +1,4 @@
-name: Publish Extension
+name: Package Extension
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
       - "v*"
 
 jobs:
-  publish:
+  package:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,5 +19,17 @@ jobs:
 
       - run: npm run compile
 
-      - name: Publish to VS Code Marketplace
-        run: npx @vscode/vsce publish -p ${{ secrets.VSCE_TOKEN }}
+      - name: Package VSIX
+        run: npx @vscode/vsce package
+
+      - name: Upload VSIX as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wardy-vsix
+          path: "*.vsix"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "*.vsix"
+          generate_release_notes: true
