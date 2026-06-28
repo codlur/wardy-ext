@@ -6,7 +6,7 @@
   "publisher": "Wardy",
   "repository": {
     "type": "git",
-    "url": "https://github.com/YOUR_USER/YOUR_REPO"
+    "url": "https://github.com/codlur/wardy-ext"
   },
   "engines": {
     "vscode": "^1.98.0"
