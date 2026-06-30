@@ -1,110 +1,92 @@
-# Wardy - The activity manager for your AI coding agents
+# Wardy — Generative AI Data Collector
 
-Wardy is the activity manager for your AI coding agents. Track every prompt, file change, approval, terminal command, Git commit, and agent action in one searchable timeline. Know exactly which agent did what, when, where, and why, replay coding sessions, generate AI summaries, send reports to Slack, and export your history as PDF, Excel, or Word—all while keeping your data private and under your control.
+Wardy automatically detects, tracks, and indexes every interaction you have with AI coding agents — prompts, responses, file changes, terminal commands, Git commits, approvals, and agent actions — in one unified, searchable timeline. No manual logging. No context switching. Just complete, auditable history of your AI-assisted development.
 
+Think of it as **Git for AI activity**: every prompt, every decision, every change captured automatically so you can review, replay, analyze, and share your entire AI coding workflow.
 
-## Features
+---
 
-Features
-🕒 AI Coding Timeline
+## What Wardy Collects
 
-Automatically records every AI-assisted coding session in a chronological timeline, so you always know what happened and when.
+| Data | Details |
+|---|---|
+| **AI Prompts & Responses** | Every prompt sent to an AI agent and every response received, with full conversation history |
+| **Agent Activity** | Which agent (Claude Code, OpenCode, Cursor, Codex CLI, GitHub Copilot, Aider, etc.) made which change |
+| **File Changes** | Every file modified by an AI agent, linked to the prompt that triggered the change |
+| **Terminal & Tool Commands** | Shell commands, tool executions, Git operations, and package installs during AI sessions |
+| **Approvals & Rejections** | Every manual intervention, approval, or rejection during AI-assisted development |
+| **Session Metadata** | Model used, tokens consumed, duration, project path, and timestamps for every session |
+| **Process Activity** | Real-time detection of running AI agents (start, stop, active sessions) |
 
-🤖 Agent Activity Tracking
+---
 
-See exactly which AI agent made each change, including the files modified, actions performed, timestamps, and the reasoning behind every update.
+## Why Wardy
 
-💬 Prompt History
+**For Developers**
+- Never wonder "what did the AI change and why?" — every action is logged and linked to its prompt
+- Search across all your AI conversations, files, and commands in one place
+- Replay coding sessions step-by-step to understand how a solution evolved
+- Keep a private, local-first record under your control
 
-Never lose track of your conversations. Wardy stores every prompt and response, making it easy to understand why code was generated or changed.
+**For Teams**
+- Generate **AI Activity Reports** as PDF, Excel, or Word for audits, stand-ups, and retrospectives
+- Send automated daily summaries to **Slack** — keep everyone aligned without leaving the editor
+- Track which agents and models your team relies on, and how much they're used
+- Export compliance-ready audit trails of all AI-assisted changes
 
-📂 Smart Session Organization
+**For AI Workflow Analysis**
+- Collect structured data on prompt volume, token usage, session duration, and agent preferences
+- Identify patterns in how your team interacts with AI — which prompts yield results, which agents are most productive, where context is lost
+- Build a quantitative foundation for optimizing your AI development pipeline
 
-Automatically categorizes your AI activity into sessions, projects, tasks, and agents, keeping your workflow organized and easy to navigate.
+---
 
-🔍 Search Everything
+## Supported Agents
 
-Instantly search prompts, files, commits, terminal commands, and AI actions across your entire coding history.
+Wardy auto-detects and tracks sessions from:
 
-📄 File & Change History
+| Agent | Provider | Detection Method |
+|---|---|---|
+| **Claude Code** | Anthropic | Process detection + conversation files |
+| **OpenCode** | Anthropic | Process detection + `.dat` files + conversation files |
+| **Cursor** | OpenAI | Process detection + composer/chat JSON files |
+| **Codex CLI** | OpenAI | Process detection + session index files |
+| **GitHub Copilot** | GitHub | Process detection |
+| **Claude Dev** | Anthropic | Checkpoint directory scanning |
+| **Aider** | — | Process detection + data directory scanning |
+| **Qoder** | — | Data directory scanning |
+| **VS Code** | — | Process detection (terminal/command tracking) |
+| Any other CLI agent | — | Process detection (generic fallback) |
 
-View the complete history of every file, including which agent modified it, what prompt triggered the change, and when it happened.
+---
 
-✅ Approval Tracking
+## How It Works
 
-Keep a record of every approval, rejection, or manual intervention, making AI-assisted development transparent and auditable.
+1. **Install** Wardy in VS Code — it activates automatically in your sidebar
+2. **Use your AI agents normally** — Wardy watches for running agents and new conversation files in real time
+3. **Review your timeline** — every session, prompt, and change appears instantly in the Wardy sidebar
+4. **Search, filter, and analyze** — find any interaction across projects, agents, or timeframes
+5. **Export and share** — generate reports or send summaries to Slack
 
-💻 Terminal & Tool Activity
+---
 
-Track terminal commands, tool executions, Git operations, package installations, and other actions performed during an AI coding session.
+## Installation
 
-🧠 AI Session Summaries
+Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/) or [open-vsx.org](https://open-vsx.org/).
 
-Generate concise summaries of coding sessions, highlighting completed tasks, major changes, potential issues, and next steps.
+Visual Studio Code 1.90.0+ required. Works out of the box with zero configuration.
 
-📊 Reports & Team Sharing
+---
 
-Generate professional reports of AI activity and export them as PDF, Excel, or Word documents to share with teammates, clients, or managers.
+## Privacy & Data Control
 
-💬 Slack Reports
+- **Local-first**: All data stays on your machine in your extension storage directory
+- **No telemetry**: Wardy does not phone home, track usage, or send data to any external server
+- **You own your history**: Export, delete, or archive your AI activity data at any time
+- **Optional cloud sync**: Login to Wardy Cloud for cross-device sync (coming soon)
 
-Automatically send daily or on-demand summaries of your AI coding sessions directly to Slack, keeping your team informed without leaving the editor.
+---
 
-🕵️ Complete Audit Trail
+## License
 
-Maintain a complete history of every AI action—from prompts and approvals to file edits and commits—making it easy to investigate, review, or understand any change.
-
-🔄 Session Replay
-
-Replay an entire AI coding session step by step to understand how a feature evolved and where specific changes were introduced.
-
-📍 Project Timeline
-
-Get a visual timeline of your project's evolution, showing who (or which AI), what, when, and where changes occurred.
-
-🔐 Privacy First
-
-Your coding history remains under your control. Wardy is designed to help you understand your AI workflow without compromising ownership of your code or development history.
-
-## Requirements
-Visual Studio Code 1.90.0 or later.
-No additional setup required.
-Future releases will support integrations with popular AI coding agents such as Claude Code, Cursor, GitHub Copilot, Gemini CLI, and Codex.None.
-
-## Extension Settings
-
-Wardy works out of the box with zero configuration.
-
-Upcoming settings will include:
-
-Enable/disable activity tracking
-Ignore specific files or folders
-Customize timeline categories
-Configure Slack reporting
-Choose export formats
-Privacy and data retention preferences
-
-## Known Issues
-
-This is the initial release of Wardy.
-Some AI coding assistants may require future native integrations for richer activity tracking.
-Additional integrations and advanced replay features are planned for upcoming releases.
-
-## Release Notes
-
-### 0.1.0 — Initial Release 🚀
-
-AI coding activity timeline
-Track prompts, file changes, approvals, terminal commands, and Git commits
-View which agent made each change
-Searchable session history
-Session replay
-AI-generated coding summaries
-Slack report generation
-Export reports as PDF, Excel, and Word
-Privacy-first local data storage
-Modern Visual Studio Code sidebar interface
-
-### 0.0.1
-
-Initial release.
+MIT
