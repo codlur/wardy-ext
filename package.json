@@ -1,10 +1,11 @@
 {
   "name": "wardy",
-  "displayName": "Wardy - The activity manager for your AI coding agents",
-  "description": "Wardy - The activity manager for your AI coding agents",
+  "displayName": "Wardy - agentic interaction data Collector",
+  "description": "Wardy - agentic interaction data Collector",
   "version": "0.2.0",
   "publisher": "Wardy",
   "license": "MIT",
+  "homepage": "https://wardy.run",
   "repository": {
     "type": "git",
     "url": "https://github.com/codlur/wardy-ext"
@@ -13,7 +14,24 @@
     "vscode": "^1.98.0"
   },
   "categories": [
-    "Other"
+    "AI",
+    "Data Science",
+    "Machine Learning",
+    "Visualization"
+  ],
+  "keywords": [
+    "ai",
+    "claude",
+    "openai",
+    "anthropic",
+    "copilot",
+    "agent",
+    "data",
+    "tracking",
+    "prompt",
+    "session",
+    "timeline",
+    "productivity"
   ],
   "activationEvents": [
     "onView:wardy.sidebar"

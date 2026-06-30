@@ -1,8 +1,10 @@
-# Wardy — Generative AI Data Collector
+# Wardy — agentic interaction data Collector
 
 Wardy automatically detects, tracks, and indexes every interaction you have with AI coding agents — prompts, responses, file changes, terminal commands, Git commits, approvals, and agent actions — in one unified, searchable timeline. No manual logging. No context switching. Just complete, auditable history of your AI-assisted development.
 
 Think of it as **Git for AI activity**: every prompt, every decision, every change captured automatically so you can review, replay, analyze, and share your entire AI coding workflow.
+
+🌐 [wardy.run](https://wardy.run) · 🐦 [@wardy_ai](https://x.com/wardy_ai)
 
 ---
 
