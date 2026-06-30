@@ -92,13 +92,6 @@ Additional integrations and advanced replay features are planned for upcoming re
 
 ## Release Notes
 
-### 0.1.1 — Logo & Icon Update 🎨
-
-- Updated extension marketplace logo with dedicated `wardylogo.png`
-- Added separate transparent activity bar icon `wardy-icon.png` for cleaner sidebar appearance
-- Extension page now shows full branding logo
-- Sidebar icon displays without background square
-
 ### 0.1.0 — Initial Release 🚀
 
 AI coding activity timeline

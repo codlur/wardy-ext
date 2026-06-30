@@ -20,6 +20,16 @@
   "icon": "src/wardylogo.png",
   "main": "./out/extension.js",
   "contributes": {
+    "configuration": {
+      "title": "Wardy",
+      "properties": {
+        "wardy.storagePath": {
+          "type": "string",
+          "default": "",
+          "description": "Custom path for Wardy data storage. Leave empty to use the default extension storage location."
+        }
+      }
+    },
     "viewsContainers": {
       "activitybar": [
         {
@@ -32,7 +42,7 @@
     "views": {
       "wardy-sidebar": [
         {
-          "type": "tree",
+          "type": "webview",
           "id": "wardy.sidebar",
           "name": "Wardy"
         }
@@ -40,10 +50,32 @@
     },
     "commands": [
       {
-        "command": "wardy.helloWorld",
-        "title": "Hello World"
+        "command": "wardy.login",
+        "title": "Log in to Wardy Cloud"
+      },
+      {
+        "command": "wardy.createAccount",
+        "title": "Create Wardy Account"
+      },
+      {
+        "command": "wardy.skip",
+        "title": "Use Wardy with Local Data"
+      },
+      {
+        "command": "wardy.settings",
+        "title": "Wardy Settings",
+        "icon": "$(gear)"
       }
-    ]
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "wardy.settings",
+          "when": "view == wardy.sidebar",
+          "group": "navigation"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
@@ -52,11 +84,14 @@
     "lint": "eslint src --ext ts"
   },
   "devDependencies": {
-    "@types/vscode": "^1.98.0",
     "@types/node": "^22.0.0",
-    "typescript": "^5.7.0",
-    "eslint": "^9.0.0",
+    "@types/vscode": "^1.98.0",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
-    "@typescript-eslint/parser": "^8.0.0"
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
+    "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "thesvg": "^3.0.18"
   }
 }

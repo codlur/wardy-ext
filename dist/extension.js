@@ -1,45 +1,77 @@
-import * as os from 'os';
-import * as path from 'path';
-import * as vscode from 'vscode';
-import { AgentStore } from './agent-store';
-import { AgentDetector } from './agent-detector';
-import { KNOWN_AGENTS, SVG_GENERIC } from './agent-types';
-
-let wardyProvider: WardyViewProvider | undefined;
-
-interface ProjectInfo {
-  path: string;
-  name: string;
-  agentNames: string[];
-  sessionCount: number;
-  totalPrompts: number;
-  totalTokens: number;
-  lastActive: string;
-}
-
-interface WardyViewData {
-  agentSummary: any[];
-  knownAgents: { name: string; provider: string; icon: string }[];
-  sessions: any[];
-  genericIcon: string;
-  projects: ProjectInfo[];
-}
-
-function getHtml(iconUri: vscode.Uri, scriptUri: string, userName: string, storagePath: string, onboarded: boolean, statusText: string, agentSummary: string, sessions: string, projects: string): string {
-  let parsedSummary: any[] = [];
-  try { parsedSummary = JSON.parse(agentSummary); } catch { parsedSummary = []; }
-  let parsedSessions: any[] = [];
-  try { parsedSessions = JSON.parse(sessions); } catch { parsedSessions = []; }
-  let parsedProjects: ProjectInfo[] = [];
-  try { parsedProjects = JSON.parse(projects); } catch { parsedProjects = []; }
-  const wardyData: WardyViewData = {
-    agentSummary: parsedSummary,
-    knownAgents: KNOWN_AGENTS.map(a => ({ name: a.name, provider: a.provider, icon: a.icon })),
-    sessions: parsedSessions,
-    genericIcon: SVG_GENERIC,
-    projects: parsedProjects,
-  };
-  return `<!DOCTYPE html>
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.activate = activate;
+exports.deactivate = deactivate;
+const os = __importStar(require("os"));
+const path = __importStar(require("path"));
+const vscode = __importStar(require("vscode"));
+const agent_store_1 = require("./agent-store");
+const agent_detector_1 = require("./agent-detector");
+const agent_types_1 = require("./agent-types");
+let wardyProvider;
+function getHtml(iconUri, scriptUri, userName, storagePath, onboarded, statusText, agentSummary, sessions, projects) {
+    let parsedSummary = [];
+    try {
+        parsedSummary = JSON.parse(agentSummary);
+    }
+    catch {
+        parsedSummary = [];
+    }
+    let parsedSessions = [];
+    try {
+        parsedSessions = JSON.parse(sessions);
+    }
+    catch {
+        parsedSessions = [];
+    }
+    let parsedProjects = [];
+    try {
+        parsedProjects = JSON.parse(projects);
+    }
+    catch {
+        parsedProjects = [];
+    }
+    const wardyData = {
+        agentSummary: parsedSummary,
+        knownAgents: agent_types_1.KNOWN_AGENTS.map(a => ({ name: a.name, provider: a.provider, icon: a.icon })),
+        sessions: parsedSessions,
+        genericIcon: agent_types_1.SVG_GENERIC,
+        projects: parsedProjects,
+    };
+    return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -689,275 +721,254 @@ svg {
 </body>
 </html>`;
 }
-
-class WardyViewProvider implements vscode.WebviewViewProvider {
-  private _webviewView: vscode.WebviewView | undefined;
-  private _agentStore: AgentStore | undefined;
-  private _agentDetector: AgentDetector | undefined;
-
-  constructor(
-    private readonly _extensionUri: vscode.Uri,
-    private readonly _globalStoragePath: string,
-    private readonly _globalState: vscode.Memento,
-  ) {
-    try {
-      const storagePath = vscode.workspace.getConfiguration('wardy').get<string>('storagePath') || this._globalStoragePath;
-      this._agentStore = new AgentStore(storagePath);
-      this._agentDetector = new AgentDetector(this._agentStore);
-      this._agentDetector.onUpdate((newSessions, running) => {
-        this.postMessage({ command: 'realtimeUpdate', newSessions: newSessions.length, running: running.length });
-        this.postMessage({ command: 'updateSessions', sessions: this.getAllSessionsJson() });
-        this.postMessage({ command: 'updateAgents', summary: this.getAgentSummaryJson(), processes: running });
-        this.postMessage({ command: 'updateProjects', projects: this.getProjectsJson() });
-      });
-      this._agentDetector.startWatching(os.homedir());
-    } catch {}
-  }
-
-  dispose(): void {
-    this._agentDetector?.stopWatching();
-  }
-
-  postMessage(message: any) {
-    this._webviewView?.webview.postMessage(message);
-  }
-
-  private getAllSessionsJson(): string {
-    try {
-      if (!this._agentStore) return '[]';
-      const all = this._agentStore.getAll();
-      const serialized = all.map(s => ({
-        id: s.id,
-        agentName: s.agentName,
-        provider: s.provider,
-        model: s.model,
-        title: s.title,
-        startTime: s.startTime,
-        endTime: s.endTime,
-        promptCount: s.promptCount,
-        totalTokens: s.totalTokens,
-        projectPath: s.projectPath,
-      }));
-      return JSON.stringify(serialized);
-    } catch {
-      return '[]';
+class WardyViewProvider {
+    _extensionUri;
+    _globalStoragePath;
+    _globalState;
+    _webviewView;
+    _agentStore;
+    _agentDetector;
+    constructor(_extensionUri, _globalStoragePath, _globalState) {
+        this._extensionUri = _extensionUri;
+        this._globalStoragePath = _globalStoragePath;
+        this._globalState = _globalState;
+        try {
+            const storagePath = vscode.workspace.getConfiguration('wardy').get('storagePath') || this._globalStoragePath;
+            this._agentStore = new agent_store_1.AgentStore(storagePath);
+            this._agentDetector = new agent_detector_1.AgentDetector(this._agentStore);
+            this._agentDetector.onUpdate((newSessions, running) => {
+                this.postMessage({ command: 'realtimeUpdate', newSessions: newSessions.length, running: running.length });
+                this.postMessage({ command: 'updateSessions', sessions: this.getAllSessionsJson() });
+                this.postMessage({ command: 'updateAgents', summary: this.getAgentSummaryJson(), processes: running });
+                this.postMessage({ command: 'updateProjects', projects: this.getProjectsJson() });
+            });
+            this._agentDetector.startWatching(os.homedir());
+        }
+        catch { }
     }
-  }
-
-  private getProjectsJson(): string {
-    try {
-      if (!this._agentStore) return '[]';
-      const all = this._agentStore.getAll();
-      const wsFolders = vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath) || [];
-      const map = new Map<string, { path: string; agents: Set<string>; sessions: number; prompts: number; tokens: number; lastActive: string }>();
-
-      for (const s of all) {
-        const p = s.projectPath || '';
-        if (!p) continue;
-        let entry = map.get(p);
-        if (!entry) {
-          entry = { path: p, agents: new Set(), sessions: 0, prompts: 0, tokens: 0, lastActive: '' };
-          map.set(p, entry);
+    dispose() {
+        this._agentDetector?.stopWatching();
+    }
+    postMessage(message) {
+        this._webviewView?.webview.postMessage(message);
+    }
+    getAllSessionsJson() {
+        try {
+            if (!this._agentStore)
+                return '[]';
+            const all = this._agentStore.getAll();
+            const serialized = all.map(s => ({
+                id: s.id,
+                agentName: s.agentName,
+                provider: s.provider,
+                model: s.model,
+                title: s.title,
+                startTime: s.startTime,
+                endTime: s.endTime,
+                promptCount: s.promptCount,
+                totalTokens: s.totalTokens,
+                projectPath: s.projectPath,
+            }));
+            return JSON.stringify(serialized);
         }
-        entry.agents.add(s.agentName);
-        entry.sessions++;
-        entry.prompts += s.promptCount || 0;
-        entry.tokens += s.totalTokens || 0;
-        if (s.startTime && (!entry.lastActive || s.startTime > entry.lastActive)) {
-          entry.lastActive = s.startTime;
+        catch {
+            return '[]';
         }
-      }
-
-      // Also include current workspace folders even if no sessions yet
-      for (const f of wsFolders) {
-        if (!map.has(f)) {
-          map.set(f, { path: f, agents: new Set(), sessions: 0, prompts: 0, tokens: 0, lastActive: '' });
+    }
+    getProjectsJson() {
+        try {
+            if (!this._agentStore)
+                return '[]';
+            const all = this._agentStore.getAll();
+            const wsFolders = vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath) || [];
+            const map = new Map();
+            for (const s of all) {
+                const p = s.projectPath || '';
+                if (!p)
+                    continue;
+                let entry = map.get(p);
+                if (!entry) {
+                    entry = { path: p, agents: new Set(), sessions: 0, prompts: 0, tokens: 0, lastActive: '' };
+                    map.set(p, entry);
+                }
+                entry.agents.add(s.agentName);
+                entry.sessions++;
+                entry.prompts += s.promptCount || 0;
+                entry.tokens += s.totalTokens || 0;
+                if (s.startTime && (!entry.lastActive || s.startTime > entry.lastActive)) {
+                    entry.lastActive = s.startTime;
+                }
+            }
+            // Also include current workspace folders even if no sessions yet
+            for (const f of wsFolders) {
+                if (!map.has(f)) {
+                    map.set(f, { path: f, agents: new Set(), sessions: 0, prompts: 0, tokens: 0, lastActive: '' });
+                }
+            }
+            const projects = [];
+            for (const [, entry] of map) {
+                projects.push({
+                    path: entry.path,
+                    name: path.basename(entry.path) || entry.path,
+                    agentNames: Array.from(entry.agents),
+                    sessionCount: entry.sessions,
+                    totalPrompts: entry.prompts,
+                    totalTokens: entry.tokens,
+                    lastActive: entry.lastActive,
+                });
+            }
+            projects.sort((a, b) => b.lastActive.localeCompare(a.lastActive));
+            return JSON.stringify(projects);
         }
-      }
-
-      const projects: ProjectInfo[] = [];
-      for (const [, entry] of map) {
-        projects.push({
-          path: entry.path,
-          name: path.basename(entry.path) || entry.path,
-          agentNames: Array.from(entry.agents),
-          sessionCount: entry.sessions,
-          totalPrompts: entry.prompts,
-          totalTokens: entry.tokens,
-          lastActive: entry.lastActive,
+        catch {
+            return '[]';
+        }
+    }
+    getAgentSummaryJson() {
+        try {
+            if (!this._agentStore || !this._agentDetector)
+                return '[]';
+            const summary = this._agentStore.getSummary();
+            const running = this._agentDetector.detectRunningProcesses();
+            const runningNames = new Set(running.map(r => r.name));
+            for (const s of summary) {
+                if (runningNames.has(s.agentName)) {
+                    s.lastActive = 'running';
+                }
+            }
+            return JSON.stringify(summary);
+        }
+        catch {
+            return '[]';
+        }
+    }
+    resolveWebviewView(webviewView, _context, _token) {
+        this._webviewView = webviewView;
+        webviewView.webview.options = { enableScripts: true };
+        const iconUri = webviewView.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'src', 'wardy-icon.png'));
+        let userName = 'User';
+        let storagePath = this._globalStoragePath;
+        let onboarded = false;
+        let statusText = 'Local';
+        let agentSummary = '[]';
+        let sessions = '[]';
+        let projects = '[]';
+        try {
+            userName = os.userInfo().username;
+            storagePath = vscode.workspace.getConfiguration('wardy').get('storagePath') || this._globalStoragePath;
+            onboarded = this._globalState.get('wardy.onboarded', false);
+            statusText = this._globalState.get('wardy.status', 'Local');
+            agentSummary = this.getAgentSummaryJson();
+            sessions = this.getAllSessionsJson();
+            projects = this.getProjectsJson();
+        }
+        catch { }
+        const scriptUri = webviewView.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'src', 'webview.js'));
+        webviewView.webview.html = getHtml(iconUri, scriptUri.toString(), userName, storagePath, onboarded, statusText, agentSummary, sessions, projects);
+        webviewView.webview.onDidReceiveMessage((message) => {
+            switch (message.command) {
+                case 'login':
+                    vscode.commands.executeCommand('wardy.login');
+                    this.postMessage({ command: 'goToMain' });
+                    break;
+                case 'createAccount':
+                    vscode.commands.executeCommand('wardy.createAccount');
+                    this.postMessage({ command: 'goToMain' });
+                    break;
+                case 'skip':
+                    vscode.commands.executeCommand('wardy.skip');
+                    this.postMessage({ command: 'goToMain' });
+                    break;
+                case 'openStorage': {
+                    const p = vscode.workspace.getConfiguration('wardy').get('storagePath');
+                    vscode.env.openExternal(vscode.Uri.file(p || this._globalStoragePath));
+                    break;
+                }
+                case 'changeStorage': {
+                    vscode.window.showOpenDialog({ canSelectFolders: true }).then(uri => {
+                        if (uri && uri[0]) {
+                            vscode.workspace.getConfiguration('wardy').update('storagePath', uri[0].fsPath, vscode.ConfigurationTarget.Global);
+                            this.postMessage({ command: 'updateStoragePath', path: uri[0].fsPath });
+                        }
+                    });
+                    break;
+                }
+                case 'scanAgents': {
+                    try {
+                        if (!this._agentDetector) {
+                            this.postMessage({ command: 'updateAgents', summary: '[]' });
+                            break;
+                        }
+                        const result = this._agentDetector.runFullScan();
+                        const summary = this.getAgentSummaryJson();
+                        const sessions = this.getAllSessionsJson();
+                        const projects = this.getProjectsJson();
+                        this.postMessage({ command: 'updateAgents', summary, processes: result.processes });
+                        this.postMessage({ command: 'updateSessions', sessions });
+                        this.postMessage({ command: 'updateProjects', projects });
+                        vscode.window.showInformationMessage(`Wardy: scanned agents — found ${result.sessions.length} new sessions, ${result.processes.length} running`);
+                    }
+                    catch {
+                        this.postMessage({ command: 'updateAgents', summary: '[]' });
+                    }
+                    break;
+                }
+                default: {
+                    if (typeof message.command === 'string' && message.command.startsWith('getConversation:')) {
+                        const sessionId = message.command.slice('getConversation:'.length);
+                        try {
+                            if (!this._agentStore)
+                                break;
+                            const all = this._agentStore.getAll();
+                            const session = all.find(s => s.id === sessionId);
+                            if (session && session.metadata?.conversation) {
+                                this.postMessage({ command: 'showConversation', messages: session.metadata.conversation });
+                            }
+                            else {
+                                this.postMessage({ command: 'showConversation', messages: '[]' });
+                            }
+                        }
+                        catch {
+                            this.postMessage({ command: 'showConversation', messages: '[]' });
+                        }
+                    }
+                    break;
+                }
+            }
         });
-      }
-      projects.sort((a, b) => b.lastActive.localeCompare(a.lastActive));
-      return JSON.stringify(projects);
-    } catch {
-      return '[]';
     }
-  }
-
-  private getAgentSummaryJson(): string {
+}
+function activate(context) {
     try {
-      if (!this._agentStore || !this._agentDetector) return '[]';
-      const summary = this._agentStore.getSummary();
-      const running = this._agentDetector.detectRunningProcesses();
-      const runningNames = new Set(running.map(r => r.name));
-      for (const s of summary) {
-        if (runningNames.has(s.agentName)) {
-          (s as any).lastActive = 'running';
-        }
-      }
-      return JSON.stringify(summary);
-    } catch {
-      return '[]';
+        context.subscriptions.push(vscode.commands.registerCommand('wardy.login', () => {
+            context.globalState.update('wardy.onboarded', true);
+            context.globalState.update('wardy.status', 'Cloud');
+            vscode.window.showInformationMessage('Wardy Cloud login — coming soon!');
+        }));
+        context.subscriptions.push(vscode.commands.registerCommand('wardy.createAccount', () => {
+            context.globalState.update('wardy.onboarded', true);
+            context.globalState.update('wardy.status', 'Cloud');
+            vscode.window.showInformationMessage('Create a Wardy Cloud account — coming soon!');
+        }));
+        context.subscriptions.push(vscode.commands.registerCommand('wardy.skip', () => {
+            context.globalState.update('wardy.onboarded', true);
+            context.globalState.update('wardy.status', 'Local');
+        }));
+        wardyProvider = new WardyViewProvider(context.extensionUri, context.globalStorageUri.fsPath, context.globalState);
+        const provider = wardyProvider;
+        context.subscriptions.push(vscode.commands.registerCommand('wardy.settings', () => {
+            provider.postMessage({ command: 'showSettings' });
+        }));
+        context.subscriptions.push(vscode.window.registerWebviewViewProvider('wardy.sidebar', provider));
     }
-  }
-
-  resolveWebviewView(
-    webviewView: vscode.WebviewView,
-    _context: vscode.WebviewViewResolveContext,
-    _token: vscode.CancellationToken,
-  ): void {
-    this._webviewView = webviewView;
-    webviewView.webview.options = { enableScripts: true };
-
-    const iconUri = webviewView.webview.asWebviewUri(
-      vscode.Uri.joinPath(this._extensionUri, 'src', 'wardy-icon.png'),
-    );
-
-    let userName = 'User';
-    let storagePath = this._globalStoragePath;
-    let onboarded = false;
-    let statusText = 'Local';
-    let agentSummary = '[]';
-    let sessions = '[]';
-    let projects = '[]';
+    catch (e) {
+        console.error('Wardy activation failed:', e);
+    }
+}
+function deactivate() {
     try {
-      userName = os.userInfo().username;
-      storagePath = vscode.workspace.getConfiguration('wardy').get<string>('storagePath') || this._globalStoragePath;
-      onboarded = this._globalState.get<boolean>('wardy.onboarded', false);
-      statusText = this._globalState.get<string>('wardy.status', 'Local');
-      agentSummary = this.getAgentSummaryJson();
-      sessions = this.getAllSessionsJson();
-      projects = this.getProjectsJson();
-    } catch {} 
-
-    const scriptUri = webviewView.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'src', 'webview.js'));
-    webviewView.webview.html = getHtml(iconUri, scriptUri.toString(), userName, storagePath, onboarded, statusText, agentSummary, sessions, projects);
-
-    webviewView.webview.onDidReceiveMessage((message) => {
-      switch (message.command) {
-        case 'login':
-          vscode.commands.executeCommand('wardy.login');
-          this.postMessage({ command: 'goToMain' });
-          break;
-        case 'createAccount':
-          vscode.commands.executeCommand('wardy.createAccount');
-          this.postMessage({ command: 'goToMain' });
-          break;
-        case 'skip':
-          vscode.commands.executeCommand('wardy.skip');
-          this.postMessage({ command: 'goToMain' });
-          break;
-        case 'openStorage': {
-          const p = vscode.workspace.getConfiguration('wardy').get<string>('storagePath');
-          vscode.env.openExternal(vscode.Uri.file(p || this._globalStoragePath));
-          break;
-        }
-        case 'changeStorage': {
-          vscode.window.showOpenDialog({ canSelectFolders: true }).then(uri => {
-            if (uri && uri[0]) {
-              vscode.workspace.getConfiguration('wardy').update('storagePath', uri[0].fsPath, vscode.ConfigurationTarget.Global);
-              this.postMessage({ command: 'updateStoragePath', path: uri[0].fsPath });
-            }
-          });
-          break;
-        }
-        case 'scanAgents': {
-          try {
-            if (!this._agentDetector) {
-              this.postMessage({ command: 'updateAgents', summary: '[]' });
-              break;
-            }
-            const result = this._agentDetector.runFullScan();
-            const summary = this.getAgentSummaryJson();
-            const sessions = this.getAllSessionsJson();
-            const projects = this.getProjectsJson();
-            this.postMessage({ command: 'updateAgents', summary, processes: result.processes });
-            this.postMessage({ command: 'updateSessions', sessions });
-            this.postMessage({ command: 'updateProjects', projects });
-            vscode.window.showInformationMessage(`Wardy: scanned agents — found ${result.sessions.length} new sessions, ${result.processes.length} running`);
-          } catch {
-            this.postMessage({ command: 'updateAgents', summary: '[]' });
-          }
-          break;
-        }
-        default: {
-          if (typeof message.command === 'string' && message.command.startsWith('getConversation:')) {
-            const sessionId = message.command.slice('getConversation:'.length);
-            try {
-              if (!this._agentStore) break;
-              const all = this._agentStore.getAll();
-              const session = all.find(s => s.id === sessionId);
-              if (session && session.metadata?.conversation) {
-                this.postMessage({ command: 'showConversation', messages: session.metadata.conversation });
-              } else {
-                this.postMessage({ command: 'showConversation', messages: '[]' });
-              }
-            } catch {
-              this.postMessage({ command: 'showConversation', messages: '[]' });
-            }
-          }
-          break;
-        }
-      }
-    });
-  }
+        wardyProvider?.dispose();
+    }
+    catch { }
 }
-
-export function activate(context: vscode.ExtensionContext) {
-  try {
-    context.subscriptions.push(
-      vscode.commands.registerCommand('wardy.login', () => {
-        context.globalState.update('wardy.onboarded', true);
-        context.globalState.update('wardy.status', 'Cloud');
-        vscode.window.showInformationMessage('Wardy Cloud login — coming soon!');
-      }),
-    );
-
-    context.subscriptions.push(
-      vscode.commands.registerCommand('wardy.createAccount', () => {
-        context.globalState.update('wardy.onboarded', true);
-        context.globalState.update('wardy.status', 'Cloud');
-        vscode.window.showInformationMessage('Create a Wardy Cloud account — coming soon!');
-      }),
-    );
-
-    context.subscriptions.push(
-      vscode.commands.registerCommand('wardy.skip', () => {
-        context.globalState.update('wardy.onboarded', true);
-        context.globalState.update('wardy.status', 'Local');
-      }),
-    );
-
-    wardyProvider = new WardyViewProvider(context.extensionUri, context.globalStorageUri.fsPath, context.globalState);
-    const provider = wardyProvider;
-
-    context.subscriptions.push(
-      vscode.commands.registerCommand('wardy.settings', () => {
-        provider.postMessage({ command: 'showSettings' });
-      }),
-    );
-
-    context.subscriptions.push(
-      vscode.window.registerWebviewViewProvider(
-        'wardy.sidebar',
-        provider,
-      ),
-    );
-  } catch (e) {
-    console.error('Wardy activation failed:', e);
-  }
-}
-
-export function deactivate() {
-  try { wardyProvider?.dispose(); } catch {}
-}
+//# sourceMappingURL=extension.js.map
