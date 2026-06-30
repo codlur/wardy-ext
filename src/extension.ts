@@ -44,7 +44,7 @@ function getHtml(iconUri: vscode.Uri, scriptUri: string, userName: string, stora
 <head>
 <meta charset="UTF-8">
 <style>
-:root { --primary: #bf8fff; --primary-hover: #a87ae6; --primary-muted: #bf8fff22; }
+:root {}
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
   font-family: var(--vscode-font-family);
@@ -93,7 +93,7 @@ p {
 .btn-link {
   background: none; border: none; padding: 4px 0;
   font-size: 12px; font-family: var(--vscode-font-family);
-  color: var(--primary); cursor: pointer;
+  color: var(--vscode-textLink-foreground); cursor: pointer;
 }
 .btn-link:hover { text-decoration: underline; }
 .divider {
@@ -138,10 +138,9 @@ p {
   background: var(--vscode-list-hoverBackground);
 }
 .nav-tab.active {
-  color: var(--primary);
-  border-bottom-color: var(--primary);
+  color: var(--vscode-tab-activeForeground);
+  border-bottom-color: var(--vscode-focusBorder);
   border-bottom-width: 3px;
-  background: var(--primary-muted);
   font-weight: 600;
 }
 .nav-tab svg {
@@ -206,7 +205,7 @@ p {
   color: var(--vscode-badge-foreground);
 }
 .badge-cloud {
-  background: var(--primary);
+  background: var(--vscode-textLink-foreground);
   color: #fff;
 }
 .settings-layout {
@@ -248,7 +247,8 @@ p {
   color: var(--vscode-tab-activeForeground);
 }
 .settings-nav-item.active {
-  color: var(--primary);
+  color: var(--vscode-tab-activeForeground);
+  font-weight: 600;
 }
 .settings-content {
   flex: 1;
@@ -404,7 +404,7 @@ svg {
   transition: border-color 0.15s;
 }
 .session-item:hover {
-  border-color: var(--primary);
+  border-color: var(--vscode-focusBorder);
 }
 .session-title {
   font-size: 13px;
@@ -492,7 +492,7 @@ svg {
   word-break: break-word;
 }
 .chat-msg.user .chat-msg-content {
-  border-left: 3px solid var(--primary);
+  border-left: 3px solid var(--vscode-textLink-foreground);
 }
 .chat-msg.assistant .chat-msg-content {
   border-left: 3px solid var(--vscode-testing-iconPassed);
