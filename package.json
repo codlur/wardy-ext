@@ -4,6 +4,7 @@
   "description": "Wardy - The activity manager for your AI coding agents",
   "version": "0.2.0",
   "publisher": "Wardy",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/codlur/wardy-ext"
