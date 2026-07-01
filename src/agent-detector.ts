@@ -2,10 +2,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { execSync } from 'child_process';
-import { AgentSession, KNOWN_AGENTS, AgentInfo, AgentName, ChatMessage } from './agent-types';
+import { AgentSession, KNOWN_AGENTS, AgentInfo, AgentName, ChatMessage, type Provider } from './agent-types';
 import { AgentStore } from './agent-store';
 
 const POLL_INTERVAL_MS = 10000;
+
+export function normPath(p: string): string {
+  return p.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
+}
 
 function estimateTokens(text: string): number {
   return Math.max(1, Math.round(text.length / 4));
@@ -32,7 +36,13 @@ export class AgentDetector {
   private datDebounceTimer: NodeJS.Timeout | null = null;
   private watchedDatDirs = new Set<string>();
 
+  private workspacePaths: string[] = [];
+
   constructor(private store: AgentStore) {}
+
+  setWorkspacePaths(paths: string[]): void {
+    this.workspacePaths = paths;
+  }
 
   onUpdate(cb: WatchCallback): void {
     this.callback = cb;
@@ -99,6 +109,72 @@ export class AgentDetector {
       }
     }
 
+    // watch workspace .wardy/conversations/ directories
+    for (const wp of this.workspacePaths) {
+      const wc = path.join(wp, '.wardy', 'conversations');
+      if (!fs.existsSync(wc)) continue;
+      try {
+        for (const f of fs.readdirSync(wc).filter(f => f.endsWith('.json'))) {
+          const fp = path.join(wc, f);
+          this.knownFiles.add(fp);
+          this.fileMtimes.set(fp, Date.now());
+        }
+        const w = fs.watch(wc, (_event, filename) => {
+          if (!filename || !filename.endsWith('.json')) return;
+          const fullPath = path.join(wc, filename);
+          if (!this.knownFiles.has(fullPath)) {
+            this.knownFiles.add(fullPath);
+            this.fileMtimes.set(fullPath, Date.now());
+            setTimeout(() => {
+              const newSessions: AgentSession[] = [];
+              const updatedSessions: AgentSession[] = [];
+              this.scanWardyDir(fullPath, newSessions, updatedSessions);
+              if (newSessions.length > 0) this.store.addBatch(newSessions);
+              this.callback?.([...newSessions, ...updatedSessions], []);
+            }, 500);
+          }
+        });
+        this.watchers.push(w);
+      } catch {}
+    }
+
+    // watch workspace .wardy/sessions/ directories (complete session files from connector/save)
+    for (const wp of this.workspacePaths) {
+      const ws = path.join(wp, '.wardy', 'sessions');
+      if (!fs.existsSync(ws)) continue;
+      try {
+        for (const f of fs.readdirSync(ws).filter(f => f.endsWith('.json'))) {
+          const fp = path.join(ws, f);
+          this.knownFiles.add(fp);
+          this.fileMtimes.set(fp, Date.now());
+          const session = this.parseWardySessionFile(fp);
+          if (session) {
+            const existing = this.store.getById(session.id);
+            if (!existing) { this.store.add(session); }
+          }
+        }
+        const w = fs.watch(ws, (_event, filename) => {
+          if (!filename || !filename.endsWith('.json')) return;
+          const fullPath = path.join(ws, filename);
+          if (!this.knownFiles.has(fullPath)) {
+            this.knownFiles.add(fullPath);
+            this.fileMtimes.set(fullPath, Date.now());
+            setTimeout(() => {
+              const session = this.parseWardySessionFile(fullPath);
+              if (session) {
+                const existing = this.store.getById(session.id);
+                if (!existing) {
+                  this.store.add(session);
+                  this.callback?.([session], []);
+                }
+              }
+            }, 500);
+          }
+        });
+        this.watchers.push(w);
+      } catch {}
+    }
+
     this.startPolling(homeDir);
     setTimeout(() => this.runFullScan(), 500);
   }
@@ -117,6 +193,70 @@ export class AgentDetector {
       clearTimeout(this.datDebounceTimer);
       this.datDebounceTimer = null;
     }
+  }
+
+  private scanWardyDir(fullPath: string, newSessions: AgentSession[], updatedSessions: AgentSession[]): void {
+    if (fullPath.endsWith('.json') && !this.knownFiles.has(fullPath)) {
+      this.knownFiles.add(fullPath);
+      for (const agent of KNOWN_AGENTS) {
+        const prefix = agent.name.replace(/\s+/g, '-');
+        if (path.basename(fullPath).startsWith(prefix)) {
+          const parsed = this.parseSingleConversation(agent, fullPath);
+          if (parsed) { newSessions.push(parsed); }
+          break;
+        }
+      }
+    } else if (fullPath.endsWith('.json')) {
+      try {
+        const stat = fs.statSync(fullPath);
+        const mtime = stat.mtimeMs;
+        const lastMtime = this.fileMtimes.get(fullPath) || 0;
+        if (mtime > lastMtime) {
+          this.fileMtimes.set(fullPath, mtime);
+          for (const agent of KNOWN_AGENTS) {
+            const prefix = agent.name.replace(/\s+/g, '-');
+            if (path.basename(fullPath).startsWith(prefix)) {
+              const parsed = this.parseSingleConversation(agent, fullPath);
+              if (parsed) {
+                const existing = this.store.getById(parsed.id);
+                if (existing) parsed.startTime = existing.startTime;
+                updatedSessions.push(parsed);
+              }
+              break;
+            }
+          }
+        }
+      } catch {}
+    }
+  }
+
+  private parseWardySessionFile(fp: string): AgentSession | null {
+    try {
+      const raw = fs.readFileSync(fp, 'utf-8');
+      const data = JSON.parse(raw);
+      if (!data.id || !data.agentName) return null;
+      const agentName = String(data.agentName);
+      const provider: Provider = data.provider ||
+        (agentName === 'OpenCode' ? 'Anthropic' :
+         agentName === 'Claude Code' ? 'Anthropic' :
+         agentName === 'Cursor' ? 'OpenAI' :
+         agentName === 'GitHub Copilot' ? 'GitHub' : 'Unknown') as Provider;
+      return {
+        id: String(data.id),
+        agentName,
+        provider,
+        model: String(data.model || ''),
+        projectPath: String(data.projectPath || ''),
+        title: String(data.title || 'Untitled'),
+        promptCount: Number(data.promptCount) || 0,
+        totalTokens: Number(data.totalTokens) || 0,
+        startTime: String(data.startTime || ''),
+        endTime: data.endTime ? String(data.endTime) : null,
+        durationMs: data.durationMs != null ? Number(data.durationMs) : null,
+        source: 'imported' as const,
+        metadata: data.metadata || {},
+      };
+    } catch { return null; }
   }
 
   private startPolling(homeDir: string): void {
@@ -159,6 +299,54 @@ export class AgentDetector {
             } catch {}
           }
         }
+      }
+
+      // scan workspace .wardy/conversations/ directories
+      for (const wp of this.workspacePaths) {
+        const wc = path.join(wp, '.wardy', 'conversations');
+        if (!fs.existsSync(wc)) continue;
+        try {
+          for (const f of fs.readdirSync(wc).filter(f => f.endsWith('.json'))) {
+            this.scanWardyDir(path.join(wc, f), newSessions, updatedSessions);
+          }
+        } catch {}
+      }
+
+      // scan workspace .wardy/sessions/ directories (complete session files)
+      for (const wp of this.workspacePaths) {
+        const ws = path.join(wp, '.wardy', 'sessions');
+        if (!fs.existsSync(ws)) continue;
+        try {
+          for (const f of fs.readdirSync(ws).filter(f => f.endsWith('.json'))) {
+            const fullPath = path.join(ws, f);
+            if (!this.knownFiles.has(fullPath)) {
+              this.knownFiles.add(fullPath);
+              this.fileMtimes.set(fullPath, Date.now());
+              const session = this.parseWardySessionFile(fullPath);
+              if (session) {
+                const existing = this.store.getById(session.id);
+                if (!existing) {
+                  newSessions.push(session);
+                }
+              }
+            } else {
+              try {
+                const stat = fs.statSync(fullPath);
+                const mtime = stat.mtimeMs;
+                const lastMtime = this.fileMtimes.get(fullPath) || 0;
+                if (mtime > lastMtime) {
+                  this.fileMtimes.set(fullPath, mtime);
+                  const session = this.parseWardySessionFile(fullPath);
+                  if (session) {
+                    const existing = this.store.getById(session.id);
+                    if (existing) session.startTime = existing.startTime;
+                    updatedSessions.push(session);
+                  }
+                }
+              } catch {}
+            }
+          }
+        } catch {}
       }
 
       const running = this.detectRunningProcesses();
@@ -242,18 +430,83 @@ export class AgentDetector {
     }
   }
 
+  private mergeConversationIntoSession(agent: AgentInfo, messages: ChatMessage[], projectPath: string, model: string): AgentSession | null {
+    if (messages.length === 0) return null;
+    const totalTokens = messages.reduce((sum, m) => sum + (m.tokens || 0), 0);
+    const allSessions = this.store.getAll();
+    const np = normPath(projectPath);
+
+    for (const s of allSessions) {
+      if (s.agentName !== agent.name) continue;
+      const sp = normPath(s.projectPath || '');
+      // match by normalized project path, or if conv has a path and session doesn't, use it
+      if (np && sp && (sp === np || sp.includes(np) || np.includes(sp))) {
+        this.applyConversation(s, messages, totalTokens, model);
+        return s;
+      }
+    }
+    // if no project match, try matching by agent + recency (no project path needed)
+    for (const s of allSessions) {
+      if (s.agentName !== agent.name) continue;
+      if (s.projectPath && projectPath) continue; // already tried above
+      // if session has no messages and conv has them, merge
+      if (!s.metadata?.conversation) {
+        this.applyConversation(s, messages, totalTokens, model);
+        return s;
+      }
+    }
+    return null;
+  }
+
+  private applyConversation(s: AgentSession, messages: ChatMessage[], totalTokens: number, model: string): void {
+    s.metadata = s.metadata || {};
+    const existing = s.metadata.conversation ? JSON.parse(s.metadata.conversation as string) as ChatMessage[] : [];
+    const merged = [...existing, ...messages];
+    // deduplicate by content+role
+    const seen = new Set<string>();
+    const unique = merged.filter(m => {
+      const key = m.role + ':' + m.content.slice(0, 100);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    s.metadata.conversation = JSON.stringify(unique);
+    s.promptCount = unique.length;
+    s.totalTokens = (s.totalTokens || 0) + totalTokens;
+    if (model && (s.model === 'unknown' || !s.model)) s.model = model;
+    const title = extractTitle(unique);
+    if (title && (!s.title || s.title === path.basename(s.projectPath || 'unknown'))) s.title = title;
+    this.store.add(s);
+  }
+
   private processNewFile(agent: AgentInfo, filePath: string): void {
-    const session = this.parseSingleConversation(agent, filePath);
-    if (session) {
-      this.store.add(session);
-      this.callback?.([session], []);
+    const parsed = this.parseSingleConversation(agent, filePath);
+    if (!parsed) return;
+    const messages = parsed.metadata?.conversation ? JSON.parse(parsed.metadata.conversation as string) as ChatMessage[] : [];
+    if (messages.length === 0) return;
+    const merged = this.mergeConversationIntoSession(agent, messages, parsed.projectPath, parsed.model);
+    if (merged) {
+      this.callback?.([], []);
+    } else {
+      this.store.add(parsed);
+      this.callback?.([parsed], []);
     }
   }
 
   private handleFileUpdate(agent: AgentInfo, filePath: string): void {
+    const existing = this.store.getById(this.stableConvId(agent.name, filePath));
+    if (existing && existing.metadata?.conversation) {
+      // if this conversation was already merged into a project session, update that too
+      const parsed = this.parseSingleConversation(agent, filePath);
+      if (parsed) {
+        const messages = parsed.metadata?.conversation ? JSON.parse(parsed.metadata.conversation as string) as ChatMessage[] : [];
+        if (messages.length > 0) {
+          const merged = this.mergeConversationIntoSession(agent, messages, parsed.projectPath, parsed.model);
+        }
+      }
+    }
     const session = this.parseSingleConversation(agent, filePath);
     if (session) {
-      // preserve original startTime from store if this is an update
       const existing = this.store.getById(session.id);
       if (existing) {
         session.startTime = existing.startTime;
@@ -434,10 +687,16 @@ export class AgentDetector {
           } catch {}
         }
 
+        // merge conversation files into .dat sessions instead of duplicating
         const convDir = path.join(dirPath, 'conversations');
         if (fs.existsSync(convDir)) {
           const files = fs.readdirSync(convDir).filter(f => f.endsWith('.json'));
-          for (const file of files.slice(0, 50)) {
+          const allChatMessages: ChatMessage[] = [];
+          let convModel = '';
+          let convStartTime = now;
+          let convProjectPath = '';
+
+          for (const file of files.slice(0, 100)) {
             try {
               const fullConvPath = path.join(convDir, file);
               const raw = fs.readFileSync(fullConvPath, 'utf-8');
@@ -450,26 +709,51 @@ export class AgentDetector {
                     tokens: m.tokens || (m.content ? estimateTokens(String(m.content)) : 0),
                   }))
                 : [];
+              allChatMessages.push(...messages);
               const info = conv.metadata || {};
-              const title = extractTitle(messages) || file.replace('.json', '');
-              const totalTokens = messages.reduce((sum, m) => sum + (m.tokens || 0), 0);
+              if (!convModel) convModel = (info.model || info.modelName || 'unknown').toString();
+              if (!convProjectPath) convProjectPath = info.project || info.directory || '';
+              const ct = String(conv.created_at || info.created || info.createdAt || '');
+              if (ct && ct < convStartTime) convStartTime = ct;
+            } catch {}
+          }
+
+          if (allChatMessages.length > 0) {
+            const totalTokens = allChatMessages.reduce((sum, m) => sum + (m.tokens || 0), 0);
+            const firstTitle = extractTitle(allChatMessages);
+
+            // try to merge into an existing .dat session by project path
+            let merged = false;
+            for (const s of sessions) {
+              if (s.projectPath && convProjectPath && (s.projectPath === convProjectPath || s.projectPath.includes(convProjectPath) || convProjectPath.includes(s.projectPath))) {
+                s.metadata.conversation = JSON.stringify(allChatMessages);
+                s.promptCount = allChatMessages.length;
+                s.totalTokens = totalTokens;
+                s.model = convModel || s.model;
+                if (!s.title || s.title === path.basename(s.projectPath || 'unknown')) {
+                  s.title = firstTitle || s.title;
+                }
+                merged = true;
+                break;
+              }
+            }
+
+            if (!merged) {
               sessions.push({
-                id: this.stableConvId(agent.name, fullConvPath),
+                id: this.stableConvId(agent.name, dirPath),
                 agentName: agent.name,
                 provider: agent.provider,
-                model: (info.model || info.modelName || 'unknown').toString(),
-                title,
-                startTime: String(conv.created_at || info.created || info.createdAt || now),
-                endTime: String(conv.updated_at || info.updated || info.updatedAt || ''),
+                model: convModel || 'unknown',
+                title: firstTitle || path.basename(convProjectPath || 'unknown'),
+                startTime: convStartTime,
+                endTime: null,
                 durationMs: null,
-                promptCount: messages.length,
+                promptCount: allChatMessages.length,
                 totalTokens,
-                projectPath: info.project || info.directory || '',
+                projectPath: convProjectPath,
                 source: 'detected',
-                metadata: { file, conversation: JSON.stringify(messages) },
+                metadata: { conversation: JSON.stringify(allChatMessages) },
               });
-            } catch {
-              // skip corrupt files
             }
           }
         }
@@ -669,6 +953,97 @@ export class AgentDetector {
     }
 
     return sessions;
+  }
+
+  getConversationForSession(session: AgentSession): ChatMessage[] | null {
+    try {
+      const agent = KNOWN_AGENTS.find(a => a.name === session.agentName);
+      if (!agent) return null;
+
+      const projectPath = normPath(session.projectPath || '');
+      let bestMatch: ChatMessage[] | null = null;
+      let bestScore = 0;
+
+      // scan home-dir agent conversations
+      for (const dp of agent.dataPaths) {
+        const dir = path.join(os.homedir(), dp.path);
+        const convDir = path.join(dir, 'conversations');
+        if (!fs.existsSync(convDir)) continue;
+
+        const files = fs.readdirSync(convDir).filter(f => f.endsWith('.json'));
+        files.sort((a, b) => {
+          try { return fs.statSync(path.join(convDir, b)).mtimeMs - fs.statSync(path.join(convDir, a)).mtimeMs; } catch { return 0; }
+        });
+
+        for (const file of files) {
+          try {
+            const fp = path.join(convDir, file);
+            const raw = fs.readFileSync(fp, 'utf-8');
+            const conv = JSON.parse(raw);
+            const messages: ChatMessage[] = Array.isArray(conv.messages)
+              ? conv.messages.map((m: any) => ({
+                  role: String(m.role || 'user'),
+                  content: String(m.content || ''),
+                  timestamp: m.timestamp || m.created_at || undefined,
+                  tokens: m.tokens || (m.content ? estimateTokens(String(m.content)) : 0),
+                }))
+              : [];
+            if (messages.length === 0) continue;
+
+            const info = conv.metadata || {};
+            const convProject = normPath(info.project || info.directory || '');
+
+            let score = 0;
+            if (projectPath && convProject) {
+              if (convProject === projectPath) score = 3;
+              else if (convProject.includes(projectPath) || projectPath.includes(convProject)) score = 2;
+              else if (path.basename(convProject) === path.basename(projectPath)) score = 1;
+            }
+
+            if (score > bestScore) {
+              bestScore = score;
+              bestMatch = messages;
+            } else if (score === 0 && !bestMatch) {
+              bestMatch = messages; // newest fallback
+            }
+
+            if (score >= 2) break; // good enough match
+          } catch {}
+        }
+      }
+
+      // also scan workspace .wardy/conversations/ directories
+      const prefix = agent.name.replace(/\s+/g, '-');
+      for (const wp of this.workspacePaths) {
+        const wc = path.join(wp, '.wardy', 'conversations');
+        if (!fs.existsSync(wc)) continue;
+        try {
+          for (const f of fs.readdirSync(wc).filter(f => f.endsWith('.json') && f.startsWith(prefix))) {
+            const fp = path.join(wc, f);
+            const raw = fs.readFileSync(fp, 'utf-8');
+            const conv = JSON.parse(raw);
+            const messages: ChatMessage[] = Array.isArray(conv.messages)
+              ? conv.messages.map((m: any) => ({
+                  role: String(m.role || 'user'),
+                  content: String(m.content || ''),
+                  timestamp: m.timestamp || m.created_at || undefined,
+                  tokens: m.tokens || (m.content ? estimateTokens(String(m.content)) : 0),
+                }))
+              : [];
+            if (messages.length > 0) {
+              if (bestScore < 1) {
+                bestMatch = messages;
+                bestScore = 1;
+              }
+            }
+          }
+        } catch {}
+      }
+
+      return bestMatch;
+    } catch {
+      return null;
+    }
   }
 
   runFullScan(): { processes: { name: string; pid: number }[]; sessions: AgentSession[] } {

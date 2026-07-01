@@ -2,7 +2,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { AgentStore } from './agent-store';
-import { AgentDetector } from './agent-detector';
+import { AgentDetector, normPath } from './agent-detector';
 import { KNOWN_AGENTS, SVG_GENERIC } from './agent-types';
 
 let wardyProvider: WardyViewProvider | undefined;
@@ -143,16 +143,14 @@ p {
   border-bottom-width: 3px;
   font-weight: 600;
 }
-.nav-tab svg {
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-}
+
 .tab-content {
   flex: 1;
   overflow-y: auto;
 }
-.tab-pane { display: none; padding: 16px; text-align: center; }
+.tab-pane { display: none; text-align: left; }
+.tab-pane.active { display: block; width: 100%; }
+#activity-content, #projects-content, #agents-content, #search-content, #integrate-content { padding: 16px; }
 .tab-pane.active { display: block; width: 100%; }
 .info-card {
   background: var(--vscode-editor-background);
@@ -381,10 +379,16 @@ svg {
   overflow-y: auto;
   padding: 12px;
 }
-.sort-bar { display:flex;align-items:center;gap:4px;padding:8px 12px 4px;font-size:11px; }
-.sort-label { color:var(--vscode-descriptionForeground);margin-right:4px; }
-.sort-btn { background:none;border:1px solid var(--vscode-dropdown-border);border-radius:3px;padding:2px 8px;cursor:pointer;font-size:11px;color:var(--vscode-foreground); }
+.sort-bar { display:flex;align-items:center;gap:6px;padding:8px 16px 6px;font-size:12px;flex-wrap:wrap;background:var(--vscode-sideBar-background);border-bottom:1px solid var(--vscode-dropdown-border); }
+.sort-label { color:var(--vscode-descriptionForeground);font-size:11px; }
+.sort-btn { background:none;border:1px solid var(--vscode-dropdown-border);border-radius:4px;padding:4px 10px;cursor:pointer;font-size:12px;color:var(--vscode-foreground);font-family:var(--vscode-font-family);transition:background 0.15s; }
+.sort-btn:hover { background:var(--vscode-list-hoverBackground); }
 .sort-btn.active { background:var(--vscode-button-background);color:var(--vscode-button-foreground);border-color:var(--vscode-button-background); }
+.filter-btn { background:none;border:1px solid var(--vscode-dropdown-border);border-radius:4px;padding:4px 10px;cursor:pointer;font-size:12px;color:var(--vscode-descriptionForeground);font-family:var(--vscode-font-family);transition:background 0.15s; }
+.filter-btn:hover { background:var(--vscode-list-hoverBackground); }
+.filter-btn.active { background:var(--vscode-button-background);color:var(--vscode-button-foreground);border-color:var(--vscode-button-background); }
+.search-input { flex:1;min-width:80px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-dropdown-border);border-radius:4px;padding:5px 10px;font-size:12px;font-family:var(--vscode-font-family);outline:none;transition:border-color 0.15s; }
+.search-input:focus { border-color:var(--vscode-focusBorder); }
 .session-list {
   display: flex;
   flex-direction: column;
@@ -406,6 +410,8 @@ svg {
 .session-item:hover {
   border-color: var(--vscode-focusBorder);
 }
+.session-item-empty { opacity: 0.55; }
+.project-current { border-width: 2px; }
 .session-title {
   font-size: 13px;
   font-weight: 600;
@@ -542,47 +548,53 @@ svg {
   <div id="page-main" class="page${onboarded ? ' active' : ''}">
     <div class="main-layout">
       <div class="top-nav">
-        <button class="nav-tab active" data-tab="activity">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12,7 12,12 15,15"/></svg>
-          Activity
-        </button>
-        <button class="nav-tab" data-tab="projects">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"/></svg>
-          Projects
-        </button>
-        <button class="nav-tab" data-tab="agents">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="15" x2="4" y2="15"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="15" x2="23" y2="15"/></svg>
-          Agents
-        </button>
-        <button class="nav-tab" data-tab="integrate">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-          Integrate
-        </button>
-        <button class="nav-tab" data-tab="search">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          Search
-        </button>
+        <button class="nav-tab active" data-tab="activity">Activity</button>
+        <button class="nav-tab" data-tab="projects">Projects</button>
+        <button class="nav-tab" data-tab="agents">Agents</button>
+        <button class="nav-tab" data-tab="integrate">Integrate</button>
+        <button class="nav-tab" data-tab="search">Search</button>
       </div>
       <div class="tab-content">
         <div class="tab-pane active" id="tab-activity">
           <div class="sort-bar">
-            <span class="sort-label">Sort:</span>
+            <input class="search-input" id="search-activity" type="text" placeholder="Search sessions..." data-tab="activity">
             <button class="sort-btn active" data-sort="latest">Latest</button>
             <button class="sort-btn" data-sort="oldest">Oldest</button>
+            <button class="filter-btn" title="Hide sessions without messages">Hide empty</button>
           </div>
           <div id="activity-content"></div>
         </div>
         <div class="tab-pane" id="tab-projects">
-          <p>No projects yet. Create your first project to start tracking AI-assisted activity.</p>
+          <div class="sort-bar">
+            <input class="search-input" id="search-projects" type="text" placeholder="Search projects..." data-tab="projects">
+            <span class="sort-label">Sort:</span>
+            <button class="sort-btn active" data-sort="latest">Latest</button>
+            <button class="sort-btn" data-sort="oldest">Oldest</button>
+          </div>
+          <div id="projects-content"></div>
         </div>
         <div class="tab-pane" id="tab-agents">
+          <div class="sort-bar">
+            <input class="search-input" id="search-agents" type="text" placeholder="Search agents..." data-tab="agents">
+            <span class="sort-label">Sort:</span>
+            <button class="sort-btn active" data-sort="latest">Latest</button>
+            <button class="sort-btn" data-sort="oldest">Oldest</button>
+          </div>
           <div id="agents-content"></div>
         </div>
         <div class="tab-pane" id="tab-integrate">
-          <p>Integrate Wardy with your tools and workflows.</p>
+          <div class="sort-bar">
+            <input class="search-input" id="search-integrate" type="text" placeholder="Search integrations..." data-tab="integrate">
+          </div>
+          <div id="integrate-content">
+            <p>Integrate Wardy with your tools and workflows.</p>
+          </div>
         </div>
         <div class="tab-pane" id="tab-search">
-          <p>Search your activity, projects, and agents.</p>
+          <div class="sort-bar">
+            <input class="search-input" id="search-global" type="text" placeholder="Search everything..." data-tab="search" autofocus>
+          </div>
+          <div id="search-content"></div>
         </div>
       </div>
     </div>
@@ -592,7 +604,8 @@ svg {
     <div class="detail-layout">
       <div class="detail-header">
         <button class="btn btn-secondary" data-action="back-to-activity" style="font-size:11px;padding:6px 10px">← Back</button>
-        <div id="detail-title" style="font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
+        <div id="detail-title" style="font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1"></div>
+        <button class="btn btn-secondary" data-action="refresh-conversation" style="font-size:11px;padding:6px 10px" title="Re-scan agent data for this session">↻ Refresh</button>
       </div>
       <div id="detail-meta" class="detail-meta"></div>
       <div id="detail-conversation" class="detail-conversation"></div>
@@ -693,7 +706,7 @@ svg {
 class WardyViewProvider implements vscode.WebviewViewProvider {
   private _webviewView: vscode.WebviewView | undefined;
   private _agentStore: AgentStore | undefined;
-  private _agentDetector: AgentDetector | undefined;
+  _agentDetector: AgentDetector | undefined;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -704,6 +717,9 @@ class WardyViewProvider implements vscode.WebviewViewProvider {
       const storagePath = vscode.workspace.getConfiguration('wardy').get<string>('storagePath') || this._globalStoragePath;
       this._agentStore = new AgentStore(storagePath);
       this._agentDetector = new AgentDetector(this._agentStore);
+      this._agentDetector.setWorkspacePaths(
+        vscode.workspace.workspaceFolders?.map(f => normPath(f.uri.fsPath)) || []
+      );
       this._agentDetector.onUpdate((newSessions, running) => {
         this.postMessage({ command: 'realtimeUpdate', newSessions: newSessions.length, running: running.length });
         this.postMessage({ command: 'updateSessions', sessions: this.getAllSessionsJson() });
@@ -748,16 +764,18 @@ class WardyViewProvider implements vscode.WebviewViewProvider {
     try {
       if (!this._agentStore) return '[]';
       const all = this._agentStore.getAll();
-      const wsFolders = vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath) || [];
+      const wsFolderPaths = (vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath) || []);
+      const wsn = wsFolderPaths.map(f => normPath(f));
       const map = new Map<string, { path: string; agents: Set<string>; sessions: number; prompts: number; tokens: number; lastActive: string }>();
 
       for (const s of all) {
-        const p = s.projectPath || '';
-        if (!p) continue;
-        let entry = map.get(p);
+        const rawP = s.projectPath || '';
+        if (!rawP) continue;
+        const np = normPath(rawP);
+        let entry = map.get(np);
         if (!entry) {
-          entry = { path: p, agents: new Set(), sessions: 0, prompts: 0, tokens: 0, lastActive: '' };
-          map.set(p, entry);
+          entry = { path: rawP, agents: new Set(), sessions: 0, prompts: 0, tokens: 0, lastActive: '' };
+          map.set(np, entry);
         }
         entry.agents.add(s.agentName);
         entry.sessions++;
@@ -769,14 +787,15 @@ class WardyViewProvider implements vscode.WebviewViewProvider {
       }
 
       // Also include current workspace folders even if no sessions yet
-      for (const f of wsFolders) {
-        if (!map.has(f)) {
-          map.set(f, { path: f, agents: new Set(), sessions: 0, prompts: 0, tokens: 0, lastActive: '' });
+      for (let i = 0; i < wsn.length; i++) {
+        if (!map.has(wsn[i])) {
+          map.set(wsn[i], { path: wsFolderPaths[i], agents: new Set(), sessions: 0, prompts: 0, tokens: 0, lastActive: '' });
         }
       }
 
-      const projects: ProjectInfo[] = [];
-      for (const [, entry] of map) {
+      const projects: (ProjectInfo & { isCurrent: boolean })[] = [];
+      const wsSet = new Set(wsn);
+      for (const [np, entry] of map) {
         projects.push({
           path: entry.path,
           name: path.basename(entry.path) || entry.path,
@@ -785,9 +804,13 @@ class WardyViewProvider implements vscode.WebviewViewProvider {
           totalPrompts: entry.prompts,
           totalTokens: entry.tokens,
           lastActive: entry.lastActive,
+          isCurrent: wsSet.has(np),
         });
       }
-      projects.sort((a, b) => b.lastActive.localeCompare(a.lastActive));
+      projects.sort((a, b) => {
+        if (a.isCurrent !== b.isCurrent) return a.isCurrent ? -1 : 1;
+        return b.lastActive.localeCompare(a.lastActive);
+      });
       return JSON.stringify(projects);
     } catch {
       return '[]';
@@ -891,19 +914,35 @@ class WardyViewProvider implements vscode.WebviewViewProvider {
           break;
         }
         default: {
-          if (typeof message.command === 'string' && message.command.startsWith('getConversation:')) {
-            const sessionId = message.command.slice('getConversation:'.length);
-            try {
-              if (!this._agentStore) break;
-              const all = this._agentStore.getAll();
-              const session = all.find(s => s.id === sessionId);
-              if (session && session.metadata?.conversation) {
-                this.postMessage({ command: 'showConversation', messages: session.metadata.conversation });
-              } else {
+          if (typeof message.command === 'string') {
+            if (message.command.startsWith('getConversation:') || message.command.startsWith('refreshConversation:')) {
+              const forceRefresh = message.command.startsWith('refreshConversation:');
+              const sessionId = message.command.slice(message.command.indexOf(':') + 1);
+              try {
+                if (!this._agentStore) break;
+                const all = this._agentStore.getAll();
+                const session = all.find(s => s.id === sessionId);
+                if (session && session.metadata?.conversation && !forceRefresh) {
+                  this.postMessage({ command: 'showConversation', messages: session.metadata.conversation });
+                } else if (session && this._agentDetector) {
+                  const msgs = this._agentDetector.getConversationForSession(session);
+                  if (msgs && msgs.length > 0) {
+                    session.metadata = session.metadata || {};
+                    session.metadata.conversation = JSON.stringify(msgs);
+                    this._agentStore?.add(session);
+                    this.postMessage({ command: 'showConversation', messages: session.metadata.conversation });
+                  } else {
+                    this.postMessage({ command: 'showConversation', messages: '[]' });
+                  }
+                } else {
+                  this.postMessage({ command: 'showConversation', messages: '[]' });
+                }
+                if (forceRefresh) {
+                  this.postMessage({ command: 'updateSessions', sessions: this.getAllSessionsJson() });
+                }
+              } catch {
                 this.postMessage({ command: 'showConversation', messages: '[]' });
               }
-            } catch {
-              this.postMessage({ command: 'showConversation', messages: '[]' });
             }
           }
           break;
@@ -940,6 +979,15 @@ export function activate(context: vscode.ExtensionContext) {
 
     wardyProvider = new WardyViewProvider(context.extensionUri, context.globalStorageUri.fsPath, context.globalState);
     const provider = wardyProvider;
+
+    // update workspace paths when folders change
+    context.subscriptions.push(
+      vscode.workspace.onDidChangeWorkspaceFolders(() => {
+        provider._agentDetector?.setWorkspacePaths(
+          (vscode.workspace.workspaceFolders || []).map(f => normPath(f.uri.fsPath))
+        );
+      })
+    );
 
     context.subscriptions.push(
       vscode.commands.registerCommand('wardy.settings', () => {

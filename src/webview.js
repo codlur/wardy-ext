@@ -37,6 +37,7 @@ function switchTab(name) {
   if (name === 'activity') renderActivity();
   if (name === 'projects') renderProjects();
   if (name === 'agents') renderAgents();
+  if (name === 'search') renderSearch();
 }
 
 function postMsg(command) {
@@ -52,6 +53,7 @@ document.addEventListener('click', e => {
   else if (action === 'back-to-activity') { showPage('page-main'); switchTab('activity'); }
   else if (action === 'login' || action === 'createAccount' || action === 'skip' || action === 'changeStorage' || action === 'openStorage' || action === 'scanAgents') postMsg(action);
   else if (action === 'view-session') { postMsg('getConversation:' + btn.dataset.sessionId); }
+  else if (action === 'refresh-conversation') { postMsg('refreshConversation:' + currentSessionId); }
   else if (action === 'back-to-agents') { showPage('page-main'); switchTab('agents'); }
   else if (action === 'back-to-projects') { showPage('page-main'); switchTab('projects'); }
 });
@@ -92,6 +94,33 @@ document.addEventListener('click', e => {
 
 document.querySelectorAll('.nav-tab').forEach(btn => {
   btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+});
+document.addEventListener('click', e => {
+  const btn = e.target.closest('.filter-btn');
+  if (!btn) return;
+  hideEmpty = !hideEmpty;
+  btn.classList.toggle('active');
+  const tab = document.querySelector('.tab-pane.active');
+  if (tab) {
+    const id = tab.id;
+    if (id === 'tab-activity') renderActivity();
+    else if (id === 'tab-projects') renderProjects();
+    else if (id === 'tab-agents') renderAgents();
+  }
+});
+
+document.addEventListener('input', e => {
+  const input = e.target.closest('.search-input');
+  if (!input) return;
+  const tab = input.dataset.tab;
+  if (searchTimers[tab]) clearTimeout(searchTimers[tab]);
+  searchTimers[tab] = setTimeout(() => {
+    searchQuery = input.value.toLowerCase();
+    if (tab === 'activity') renderActivity();
+    else if (tab === 'projects') renderProjects();
+    else if (tab === 'agents') renderAgents();
+    else if (tab === 'search') renderSearch();
+  }, 200);
 });
 
 document.querySelectorAll('.settings-nav-item').forEach(btn => {
@@ -140,6 +169,10 @@ window.addEventListener('message', event => {
 });
 
 let sessionSort = 'latest';
+let hideEmpty = false;
+let searchQuery = '';
+let searchTimers = {};
+let currentSessionId = '';
 
 function renderActivity() {
   const el = document.getElementById('activity-content');
@@ -148,7 +181,23 @@ function renderActivity() {
     el.innerHTML = '<div class="session-empty"><p>No activity yet. Start using AI agents to see your activity here.</p><div class="btn-group" style="margin:0 auto"><button class="btn" data-action="scanAgents">Scan for Agents</button></div></div>';
     return;
   }
-  const sorted = [...sessions].sort((a, b) => {
+  let filtered = [...sessions];
+  if (searchQuery) {
+    filtered = filtered.filter(s =>
+      (s.title || '').toLowerCase().includes(searchQuery) ||
+      (s.agentName || '').toLowerCase().includes(searchQuery) ||
+      (s.projectPath || '').toLowerCase().includes(searchQuery) ||
+      (s.model || '').toLowerCase().includes(searchQuery)
+    );
+  }
+  if (hideEmpty) {
+    filtered = filtered.filter(s => s.promptCount > 0 || s.totalTokens > 0);
+  }
+  if (filtered.length === 0) {
+    el.innerHTML = '<div class="session-empty"><p>' + (searchQuery ? 'No sessions match "' + esc(searchQuery) + '".' : 'No sessions with messages.') + '</p></div>';
+    return;
+  }
+  const sorted = filtered.sort((a, b) => {
     const ta = a.startTime || '';
     const tb = b.startTime || '';
     return sessionSort === 'latest' ? tb.localeCompare(ta) : ta.localeCompare(tb);
@@ -157,13 +206,15 @@ function renderActivity() {
   for (const s of sorted) {
     const info = KNOWN_AGENTS.find(k => k.name === s.agentName) || { icon: GENERIC_ICON };
     const time = s.startTime ? formatDate(s.startTime) + ' ' + formatTime(s.startTime) : '';
-    html += '<div class="session-item" data-session-id="' + s.id + '">';
+    const hasMsgs = s.promptCount > 0;
+    html += '<div class="session-item' + (hasMsgs ? '' : ' session-item-empty') + '" data-session-id="' + s.id + '">';
     html += '<div class="session-title">' + esc(s.title || 'Untitled') + '</div>';
     html += '<div class="session-meta">';
     html += '<span>' + info.icon + ' ' + esc(s.agentName) + '</span>';
     html += '<span>' + time + '</span>';
     if (s.totalTokens) html += '<span>' + formatTokens(s.totalTokens) + ' tokens</span>';
     if (s.projectPath) html += '<span>' + esc(s.projectPath) + '</span>';
+    if (!hasMsgs) html += '<span style="color:var(--vscode-descriptionForeground);font-style:italic">no messages</span>';
     html += '</div></div>';
   }
   html += '</div>';
@@ -216,6 +267,7 @@ function renderMessageContent(text) {
 }
 
 function showSessionDetail(session) {
+  currentSessionId = session.id;
   document.getElementById('detail-title').textContent = session.title || 'Untitled';
   const info = KNOWN_AGENTS.find(k => k.name === session.agentName) || { icon: GENERIC_ICON };
   const tokenStr = session.totalTokens ? formatTokens(session.totalTokens) + ' tokens' : '';
@@ -266,8 +318,24 @@ function renderAgents() {
     el.innerHTML = '<div class="agent-empty"><p>No agents detected yet. Scan for AI coding agent data on your machine.</p><div class="btn-group" style="margin:0 auto"><button class="btn" data-action="scanAgents">Scan for Agents</button></div></div>';
     return;
   }
+  let filtered = [...agentSummary];
+  if (searchQuery) {
+    filtered = filtered.filter(a =>
+      (a.agentName || '').toLowerCase().includes(searchQuery) ||
+      (a.provider || '').toLowerCase().includes(searchQuery)
+    );
+  }
+  if (filtered.length === 0) {
+    el.innerHTML = '<div class="agent-empty"><p>No agents match "' + esc(searchQuery) + '".</p></div>';
+    return;
+  }
+  filtered.sort((a, b) => {
+    const ta = a.lastActive || '';
+    const tb = b.lastActive || '';
+    return sessionSort === 'latest' ? tb.localeCompare(ta) : ta.localeCompare(tb);
+  });
   let html = '<div class="agent-grid">';
-  for (const a of agentSummary) {
+  for (const a of filtered) {
     const info = KNOWN_AGENTS.find(k => k.name === a.agentName) || { name: a.agentName, provider: a.provider || 'Unknown', icon: GENERIC_ICON };
     const running = a.lastActive === 'running';
     html += '<div class="agent-card" data-agent-name="' + esc(a.agentName) + '">';
@@ -333,21 +401,45 @@ function renderAgentSessions(agentSessions) {
 }
 
 function renderProjects() {
-  const el = document.getElementById('tab-projects');
+  const el = document.getElementById('projects-content');
   if (!el) return;
   if (!projects || projects.length === 0) {
     el.innerHTML = '<div class="session-empty"><p>No projects yet. Start using AI agents to see project activity here.</p></div>';
     return;
   }
+  let filtered = [...projects];
+  if (searchQuery) {
+    filtered = filtered.filter(p =>
+      (p.name || '').toLowerCase().includes(searchQuery) ||
+      (p.path || '').toLowerCase().includes(searchQuery) ||
+      (p.agentNames || []).some(a => a.toLowerCase().includes(searchQuery))
+    );
+  }
+  if (filtered.length === 0) {
+    el.innerHTML = '<div class="session-empty"><p>No projects match "' + esc(searchQuery) + '".</p></div>';
+    return;
+  }
+  filtered.sort((a, b) => {
+    const ta = a.lastActive || '';
+    const tb = b.lastActive || '';
+    return sessionSort === 'latest' ? tb.localeCompare(ta) : ta.localeCompare(tb);
+  });
+  // current project on top
+  const currentIdx = filtered.findIndex(p => p.isCurrent);
+  if (currentIdx > 0) {
+    const item = filtered.splice(currentIdx, 1)[0];
+    filtered.unshift(item);
+  }
   let html = '<div class="agent-grid">';
-  for (const p of projects) {
+  for (const p of filtered) {
     const agents = p.agentNames || [];
     const agentsStr = agents.length > 0 ? agents.join(', ') : '—';
-    const lastActive = p.lastActive ? formatDate(p.lastActive) + ' ' + formatTime(p.lastActive) : '—';
-    html += '<div class="project-card" data-project-path="' + esc(p.path) + '" style="cursor:pointer;background:var(--vscode-editor-background);border:1px solid var(--vscode-dropdown-border);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px;transition:border-color 0.15s">';
+    const isCurrent = p.isCurrent;
+    const cardBorder = isCurrent ? 'var(--vscode-focusBorder)' : 'var(--vscode-dropdown-border)';
+    html += '<div class="project-card' + (isCurrent ? ' project-current' : '') + '" data-project-path="' + esc(p.path) + '" style="cursor:pointer;background:' + (isCurrent ? 'var(--vscode-list-activeSelectionBackground)' : 'var(--vscode-editor-background)') + ';border:1px solid ' + cardBorder + ';border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px;transition:border-color 0.15s">';
     html += '<div style="display:flex;align-items:center;gap:8px">';
     html += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;flex-shrink:0"><path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"/></svg>';
-    html += '<span style="font-size:14px;font-weight:600">' + esc(p.name) + '</span>';
+    html += '<span style="font-size:14px;font-weight:600">' + esc(p.name) + (isCurrent ? ' <span style="font-size:10px;color:var(--vscode-textLink-foreground);font-weight:500">(current)</span>' : '') + '</span>';
     html += '</div>';
     html += '<div class="project-meta" style="display:flex;flex-wrap:wrap;gap:6px;font-size:11px;color:var(--vscode-descriptionForeground)">';
     html += '<span>' + esc(p.path) + '</span>';
@@ -365,10 +457,14 @@ function renderProjects() {
   el.innerHTML = html;
 }
 
+function normPath(p) {
+  return (p || '').replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
+}
 function showProjectDetail(projectPath) {
   const project = projects.find(p => p.path === projectPath);
   if (!project) return;
-  const projSessions = sessions.filter(s => s.projectPath === projectPath);
+  const pp = normPath(projectPath);
+  const projSessions = sessions.filter(s => normPath(s.projectPath) === pp);
   const totalTokens = projSessions.reduce((sum, s) => sum + (s.totalTokens || 0), 0);
   const totalPrompts = projSessions.reduce((sum, s) => sum + (s.promptCount || 0), 0);
 
@@ -415,6 +511,82 @@ function showProjectDetail(projectPath) {
   }
   el.innerHTML = html;
   showPage('page-project-detail');
+}
+
+function renderSearch() {
+  const el = document.getElementById('search-content');
+  if (!el) return;
+  const q = searchQuery;
+  if (!q) {
+    el.innerHTML = '<div class="session-empty"><p>Type to search across sessions, agents, and projects.</p></div>';
+    return;
+  }
+
+  let totalResults = 0;
+  let html = '';
+
+  // sessions
+  const matchedSessions = sessions.filter(s =>
+    (s.title || '').toLowerCase().includes(q) ||
+    (s.agentName || '').toLowerCase().includes(q) ||
+    (s.projectPath || '').toLowerCase().includes(q) ||
+    (s.model || '').toLowerCase().includes(q)
+  );
+  if (matchedSessions.length > 0) {
+    totalResults += matchedSessions.length;
+    html += '<div style="font-size:12px;font-weight:600;margin-bottom:8px">Sessions (' + matchedSessions.length + ')</div>';
+    html += '<div class="session-list">';
+    for (const s of matchedSessions.slice(0, 20)) {
+      const info = KNOWN_AGENTS.find(k => k.name === s.agentName) || { icon: GENERIC_ICON };
+      const time = s.startTime ? formatDate(s.startTime) + ' ' + formatTime(s.startTime) : '';
+      html += '<div class="session-item" data-session-id="' + s.id + '">';
+      html += '<div class="session-title">' + esc(s.title || 'Untitled') + '</div>';
+      html += '<div class="session-meta"><span>' + info.icon + ' ' + esc(s.agentName) + '</span><span>' + time + '</span></div></div>';
+    }
+    if (matchedSessions.length > 20) html += '<div style="font-size:11px;color:var(--vscode-descriptionForeground);text-align:center;padding:8px">+ ' + (matchedSessions.length - 20) + ' more</div>';
+    html += '</div>';
+  }
+
+  // agents
+  const matchedAgents = agentSummary.filter(a =>
+    (a.agentName || '').toLowerCase().includes(q) ||
+    (a.provider || '').toLowerCase().includes(q)
+  );
+  if (matchedAgents.length > 0) {
+    totalResults += matchedAgents.length;
+    html += '<div style="font-size:12px;font-weight:600;margin:12px 0 8px">Agents (' + matchedAgents.length + ')</div>';
+    html += '<div class="agent-grid">';
+    for (const a of matchedAgents) {
+      const info = KNOWN_AGENTS.find(k => k.name === a.agentName) || { icon: GENERIC_ICON };
+      html += '<div class="agent-card" data-agent-name="' + esc(a.agentName) + '">';
+      html += '<div class="agent-card-header"><div class="agent-card-icon">' + info.icon + '</div><span class="agent-card-name">' + a.agentName + '</span></div>';
+      html += '<div class="agent-card-stats"><div class="agent-stat"><div class="agent-stat-value">' + a.totalSessions + '</div><div class="agent-stat-label">Sessions</div></div></div></div>';
+    }
+    html += '</div>';
+  }
+
+  // projects
+  const matchedProjects = projects.filter(p =>
+    (p.name || '').toLowerCase().includes(q) ||
+    (p.path || '').toLowerCase().includes(q)
+  );
+  if (matchedProjects.length > 0) {
+    totalResults += matchedProjects.length;
+    html += '<div style="font-size:12px;font-weight:600;margin:12px 0 8px">Projects (' + matchedProjects.length + ')</div>';
+    html += '<div class="agent-grid">';
+    for (const p of matchedProjects) {
+      html += '<div class="project-card" data-project-path="' + esc(p.path) + '" style="background:var(--vscode-editor-background);border:1px solid var(--vscode-dropdown-border);border-radius:8px;padding:12px">';
+      html += '<div style="font-size:13px;font-weight:600">' + esc(p.name) + '</div>';
+      html += '<div style="font-size:11px;color:var(--vscode-descriptionForeground);margin-top:4px">' + esc(p.path) + '</div></div>';
+    }
+    html += '</div>';
+  }
+
+  if (totalResults === 0) {
+    el.innerHTML = '<div class="session-empty"><p>No results for "' + esc(q) + '".</p></div>';
+  } else {
+    el.innerHTML = '<div style="font-size:11px;color:var(--vscode-descriptionForeground);margin-bottom:8px">' + totalResults + ' result' + (totalResults > 1 ? 's' : '') + ' for "' + esc(q) + '"</div>' + html;
+  }
 }
 
 function formatNum(n) {
