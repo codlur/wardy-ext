@@ -54,6 +54,15 @@ document.addEventListener('click', e => {
   else if (action === 'login' || action === 'createAccount' || action === 'skip' || action === 'changeStorage' || action === 'openStorage' || action === 'scanAgents') postMsg(action);
   else if (action === 'view-session') { postMsg('getConversation:' + btn.dataset.sessionId); }
   else if (action === 'refresh-conversation') { postMsg('refreshConversation:' + currentSessionId); }
+  else if (action === 'export-session') {
+    vscode.postMessage({ command: 'exportSessions', sessionIds: [currentSessionId], contextName: currentSessionTitle });
+  }
+  else if (action === 'export-agent') {
+    vscode.postMessage({ command: 'exportSessions', agentName: currentAgentName, contextName: currentAgentName + '-sessions' });
+  }
+  else if (action === 'export-project') {
+    vscode.postMessage({ command: 'exportSessions', projectPath: currentProjectPath, contextName: currentProjectName + '-sessions' });
+  }
   else if (action === 'back-to-agents') { showPage('page-main'); switchTab('agents'); }
   else if (action === 'back-to-projects') { showPage('page-main'); switchTab('projects'); }
 });
@@ -173,6 +182,10 @@ let hideEmpty = false;
 let searchQuery = '';
 let searchTimers = {};
 let currentSessionId = '';
+let currentSessionTitle = '';
+let currentAgentName = '';
+let currentProjectPath = '';
+let currentProjectName = '';
 
 function renderActivity() {
   const el = document.getElementById('activity-content');
@@ -268,7 +281,8 @@ function renderMessageContent(text) {
 
 function showSessionDetail(session) {
   currentSessionId = session.id;
-  document.getElementById('detail-title').textContent = session.title || 'Untitled';
+  currentSessionTitle = session.title || 'Untitled';
+  document.getElementById('detail-title').textContent = currentSessionTitle;
   const info = KNOWN_AGENTS.find(k => k.name === session.agentName) || { icon: GENERIC_ICON };
   const tokenStr = session.totalTokens ? formatTokens(session.totalTokens) + ' tokens' : '';
   document.getElementById('detail-meta').innerHTML =
@@ -357,6 +371,7 @@ function renderAgents() {
 }
 
 function showAgentDetail(agentName) {
+  currentAgentName = agentName;
   const agent = agentSummary.find(a => a.agentName === agentName);
   if (!agent) return;
   const info = KNOWN_AGENTS.find(k => k.name === agentName) || { icon: GENERIC_ICON };
@@ -461,8 +476,10 @@ function normPath(p) {
   return (p || '').replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
 }
 function showProjectDetail(projectPath) {
+  currentProjectPath = projectPath;
   const project = projects.find(p => p.path === projectPath);
   if (!project) return;
+  currentProjectName = project.name;
   const pp = normPath(projectPath);
   const projSessions = sessions.filter(s => normPath(s.projectPath) === pp);
   const totalTokens = projSessions.reduce((sum, s) => sum + (s.totalTokens || 0), 0);

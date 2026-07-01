@@ -1,9 +1,10 @@
+import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { AgentStore } from './agent-store';
 import { AgentDetector, normPath } from './agent-detector';
-import { KNOWN_AGENTS, SVG_GENERIC } from './agent-types';
+import { AgentSession, KNOWN_AGENTS, SVG_GENERIC } from './agent-types';
 
 let wardyProvider: WardyViewProvider | undefined;
 
@@ -605,6 +606,7 @@ svg {
       <div class="detail-header">
         <button class="btn btn-secondary" data-action="back-to-activity" style="font-size:11px;padding:6px 10px">← Back</button>
         <div id="detail-title" style="font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1"></div>
+        <button class="btn btn-secondary" data-action="export-session" style="font-size:11px;padding:6px 10px" title="Export this session">⬇ Export</button>
         <button class="btn btn-secondary" data-action="refresh-conversation" style="font-size:11px;padding:6px 10px" title="Re-scan agent data for this session">↻ Refresh</button>
       </div>
       <div id="detail-meta" class="detail-meta"></div>
@@ -617,6 +619,7 @@ svg {
       <div class="agent-detail-header">
         <button class="btn btn-secondary" data-action="back-to-agents" style="font-size:11px;padding:6px 10px">← Back</button>
         <div id="agent-detail-title" class="agent-detail-title"></div>
+        <button class="btn btn-secondary" data-action="export-agent" style="font-size:11px;padding:6px 10px" title="Export all sessions for this agent">⬇ Export Sessions</button>
       </div>
       <div id="agent-detail-stats" class="agent-detail-stats"></div>
       <div id="agent-detail-sessions" class="agent-detail-sessions"></div>
@@ -628,6 +631,7 @@ svg {
       <div class="agent-detail-header">
         <button class="btn btn-secondary" data-action="back-to-projects" style="font-size:11px;padding:6px 10px">← Back</button>
         <div id="project-detail-title" class="agent-detail-title"></div>
+        <button class="btn btn-secondary" data-action="export-project" style="font-size:11px;padding:6px 10px" title="Export all sessions for this project">⬇ Export Sessions</button>
       </div>
       <div id="project-detail-meta" class="detail-meta"></div>
       <div id="project-detail-stats" class="agent-detail-stats"></div>
@@ -834,6 +838,126 @@ class WardyViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  private async handleExport(message: any) {
+    try {
+      if (!this._agentStore) {
+        vscode.window.showWarningMessage('Wardy store not available.');
+        return;
+      }
+      const { sessionIds, agentName, projectPath, contextName } = message;
+      let all = this._agentStore.getAll();
+
+      let sessions: AgentSession[] = all;
+      if (sessionIds && Array.isArray(sessionIds)) {
+        sessions = all.filter(s => sessionIds.includes(s.id));
+      } else if (agentName) {
+        sessions = all.filter(s => s.agentName === agentName);
+      } else if (projectPath) {
+        const np = normPath(projectPath);
+        sessions = all.filter(s => normPath(s.projectPath || '') === np);
+      }
+
+      if (sessions.length === 0) {
+        vscode.window.showWarningMessage('No sessions to export.');
+        return;
+      }
+
+      const format = await vscode.window.showQuickPick(
+        ['JSON', 'Text (TXT)'],
+        { placeHolder: `Export ${sessions.length} session(s) as...` }
+      );
+      if (!format) return;
+
+      const isJson = format === 'JSON';
+      const ext = isJson ? '.json' : '.txt';
+      const defaultName = (contextName || 'wardy-export').replace(/[^a-zA-Z0-9_-]/g, '_');
+
+      const uri = await vscode.window.showSaveDialog({
+        defaultUri: vscode.Uri.file(path.join(os.homedir(), 'Desktop', `${defaultName}${ext}`)),
+        filters: isJson ? { 'JSON Files': ['json'] } : { 'Text Files': ['txt'] },
+      });
+      if (!uri) return;
+
+      for (const s of sessions) {
+        if (!s.metadata?.conversation && this._agentDetector) {
+          const msgs = this._agentDetector.getConversationForSession(s);
+          if (msgs && msgs.length > 0) {
+            s.metadata = s.metadata || {};
+            s.metadata.conversation = JSON.stringify(msgs);
+          }
+        }
+      }
+
+      const content = isJson ? this.exportAsJson(sessions) : this.exportAsText(sessions);
+      fs.writeFileSync(uri.fsPath, content, 'utf-8');
+      vscode.window.showInformationMessage(`Exported ${sessions.length} session(s) to ${uri.fsPath}`);
+    } catch (e: any) {
+      vscode.window.showErrorMessage(`Export failed: ${e.message || e}`);
+    }
+  }
+
+  private exportAsJson(sessions: AgentSession[]): string {
+    const data = {
+      exportedAt: new Date().toISOString(),
+      format: 'wardy-sessions-export-v1',
+      totalSessions: sessions.length,
+      sessions: sessions.map(s => ({
+        id: s.id,
+        agentName: s.agentName,
+        provider: s.provider,
+        model: s.model,
+        title: s.title,
+        startTime: s.startTime,
+        endTime: s.endTime,
+        durationMs: s.durationMs,
+        promptCount: s.promptCount,
+        totalTokens: s.totalTokens,
+        projectPath: s.projectPath,
+        source: s.source,
+        metadata: s.metadata || {},
+      })),
+    };
+    return JSON.stringify(data, null, 2);
+  }
+
+  private exportAsText(sessions: AgentSession[]): string {
+    let text = '';
+    text += '========================================\n';
+    text += 'WARDY EXPORT - Session Report\n';
+    text += '========================================\n\n';
+    text += `Exported: ${new Date().toLocaleString()}\n`;
+    text += `Total Sessions: ${sessions.length}\n\n`;
+
+    for (const s of sessions) {
+      text += '----------------------------------------\n';
+      text += `Title: ${s.title || 'Untitled'}\n`;
+      text += `Agent: ${s.agentName}\n`;
+      text += `Provider: ${s.provider}\n`;
+      text += `Model: ${s.model || 'N/A'}\n`;
+      text += `Date: ${s.startTime ? new Date(s.startTime).toLocaleString() : 'N/A'}\n`;
+      if (s.projectPath) text += `Project: ${s.projectPath}\n`;
+      text += `Messages: ${s.promptCount}\n`;
+      text += `Tokens: ${s.totalTokens?.toLocaleString() || 0}\n`;
+
+      if (s.metadata?.conversation) {
+        try {
+          const messages = JSON.parse(s.metadata.conversation as string);
+          text += '\nConversation:\n';
+          for (const m of messages) {
+            const role = m.role === 'user' ? 'User' : m.role === 'assistant' ? 'Assistant' : m.role === 'system' ? 'System' : m.role;
+            const time = m.timestamp ? ` (${new Date(m.timestamp).toLocaleTimeString()})` : '';
+            text += `\n[${role}${time}]\n`;
+            const content = String(m.content || '');
+            text += content + '\n';
+          }
+        } catch {}
+      }
+      text += '\n';
+    }
+
+    return text;
+  }
+
   resolveWebviewView(
     webviewView: vscode.WebviewView,
     _context: vscode.WebviewViewResolveContext,
@@ -913,6 +1037,9 @@ class WardyViewProvider implements vscode.WebviewViewProvider {
           }
           break;
         }
+        case 'exportSessions':
+          this.handleExport(message);
+          break;
         default: {
           if (typeof message.command === 'string') {
             if (message.command.startsWith('getConversation:') || message.command.startsWith('refreshConversation:')) {
