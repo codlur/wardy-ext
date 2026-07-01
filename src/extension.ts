@@ -964,7 +964,13 @@ class WardyViewProvider implements vscode.WebviewViewProvider {
     _token: vscode.CancellationToken,
   ): void {
     this._webviewView = webviewView;
-    webviewView.webview.options = { enableScripts: true };
+    webviewView.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [
+        vscode.Uri.joinPath(this._extensionUri, 'src'),
+        this._extensionUri,
+      ],
+    };
 
     const iconUri = webviewView.webview.asWebviewUri(
       vscode.Uri.joinPath(this._extensionUri, 'src', 'wardy-icon.png'),
