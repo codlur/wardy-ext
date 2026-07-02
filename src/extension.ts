@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 import { AgentStore } from './agent-store';
 import { AgentDetector, normPath } from './agent-detector';
 import { AgentSession, KNOWN_AGENTS, SVG_GENERIC } from './agent-types';
+import { AgentServer } from './agent-server';
 
 let wardyProvider: WardyViewProvider | undefined;
 
@@ -24,9 +25,10 @@ interface WardyViewData {
   sessions: any[];
   genericIcon: string;
   projects: ProjectInfo[];
+  serverUrl: string;
 }
 
-function getHtml(iconUri: vscode.Uri, scriptUri: string, userName: string, storagePath: string, onboarded: boolean, statusText: string, agentSummary: string, sessions: string, projects: string): string {
+function getHtml(iconUri: vscode.Uri, scriptUri: string, userName: string, storagePath: string, agentSummary: string, sessions: string, projects: string, serverUrl: string): string {
   let parsedSummary: any[] = [];
   try { parsedSummary = JSON.parse(agentSummary); } catch { parsedSummary = []; }
   let parsedSessions: any[] = [];
@@ -39,6 +41,7 @@ function getHtml(iconUri: vscode.Uri, scriptUri: string, userName: string, stora
     sessions: parsedSessions,
     genericIcon: SVG_GENERIC,
     projects: parsedProjects,
+    serverUrl,
   };
   return `<!DOCTYPE html>
 <html lang="en">
@@ -203,10 +206,7 @@ p {
   background: var(--vscode-badge-background);
   color: var(--vscode-badge-foreground);
 }
-.badge-cloud {
-  background: var(--vscode-textLink-foreground);
-  color: #fff;
-}
+
 .settings-layout {
   display: flex;
   height: 100vh;
@@ -475,47 +475,139 @@ svg {
   overflow-y: auto;
   padding: 12px;
 }
-.chat-msg {
-  margin-bottom: 12px;
-  display: flex;
-  flex-direction: column;
+.msg-time { font-weight:400;text-transform:none;letter-spacing:0;opacity:0.6;margin-left:8px;font-size:10px; }
+.msg-tokens { font-weight:400;text-transform:none;letter-spacing:0;opacity:0.5;margin-left:4px;font-size:9px; }
+
+.acc-msg {
+  margin-bottom: 4px;
+  border: 1px solid var(--vscode-dropdown-border);
+  border-radius: 6px;
+  overflow: hidden;
 }
-.chat-msg-header {
-  font-size: 10px;
+.acc-msg-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 11px;
+  background: var(--vscode-editor-lineHighlightBackground);
+}
+.acc-msg-header:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+.acc-msg.assistant .acc-msg-header {
+  border-left: 3px solid var(--vscode-testing-iconPassed);
+}
+.acc-msg.user .acc-msg-header {
+  border-left: 3px solid var(--vscode-textLink-foreground);
+}
+.acc-msg.system .acc-msg-header {
+  border-left: 3px solid var(--vscode-charts-yellow);
+}
+.acc-role {
   font-weight: 600;
+  font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: var(--vscode-descriptionForeground);
-  margin-bottom: 4px;
+  color: var(--vscode-foreground);
+  white-space: nowrap;
 }
-.chat-msg-content {
+.acc-preview {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+  opacity: 0.8;
+}
+.acc-arrow {
+  font-size: 9px;
+  color: var(--vscode-descriptionForeground);
+  flex-shrink: 0;
+}
+.acc-msg-body {
   font-size: 12px;
   line-height: 1.5;
   padding: 8px 10px;
-  border-radius: 6px;
   background: var(--vscode-editor-background);
-  border: 1px solid var(--vscode-dropdown-border);
+  border-top: 1px solid var(--vscode-dropdown-border);
   white-space: pre-wrap;
   word-break: break-word;
 }
-.chat-msg.user .chat-msg-content {
-  border-left: 3px solid var(--vscode-textLink-foreground);
-}
-.chat-msg.assistant .chat-msg-content {
-  border-left: 3px solid var(--vscode-testing-iconPassed);
-}
-.chat-msg.system .chat-msg-content {
-  border-left: 3px solid var(--vscode-charts-yellow);
-  opacity: 0.8;
+.acc-msg-content p { margin:4px 0; }
+.acc-msg-content p:first-child { margin-top:0; }
+.acc-msg-content p:last-child { margin-bottom:0; }
+.acc-thinking {
+  padding: 4px 8px;
+  margin-bottom: 6px;
+  border-radius: 4px;
+  background: var(--vscode-editor-inactiveSelectionBackground);
+  font-size: 11px;
   font-style: italic;
+  color: var(--vscode-descriptionForeground);
 }
-.msg-time { font-weight:400;text-transform:none;letter-spacing:0;opacity:0.7;margin-left:8px; }
-.msg-tokens { font-weight:400;text-transform:none;letter-spacing:0;opacity:0.6;margin-left:6px;font-size:9px; }
+.acc-tool-call {
+  margin-bottom: 4px;
+  border: 1px solid var(--vscode-dropdown-border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.acc-tool-header {
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  background: var(--vscode-editor-inactiveSelectionBackground);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.acc-tool-header:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+.acc-tool-body {
+  padding: 6px 8px;
+  font-size: 11px;
+}
+.tc-args {
+  margin: 0 0 4px 0;
+  padding: 4px 6px;
+  background: var(--vscode-textBlockQuote-background);
+  border-radius: 3px;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 10px;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+.tc-result {
+  margin: 0;
+  padding: 4px 6px;
+  background: var(--vscode-textBlockQuote-background);
+  border-radius: 3px;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 10px;
+  white-space: pre-wrap;
+  overflow-x: auto;
+  border-left: 2px solid var(--vscode-testing-iconPassed);
+}
 .code-block { margin:8px 0;border:1px solid var(--vscode-dropdown-border);border-radius:4px;overflow:hidden; }
 .code-block-header { display:flex;justify-content:space-between;align-items:center;padding:4px 8px;background:var(--vscode-editor-inactiveSelectionBackground);font-size:10px; }
 .code-lang { color:var(--vscode-descriptionForeground);text-transform:uppercase;font-size:9px;font-weight:600;letter-spacing:0.5px; }
 .copy-btn { background:none;border:1px solid var(--vscode-dropdown-border);border-radius:3px;padding:2px 6px;cursor:pointer;font-size:10px;color:var(--vscode-foreground); }
 .copy-btn:hover { background:var(--vscode-button-hoverBackground);color:var(--vscode-button-foreground); }
+.export-group { display:inline-flex;align-items:stretch;gap:0; }
+.export-group .btn { border-radius:4px 0 0 4px; }
+.export-fmt {
+  width:52px;border:1px solid var(--vscode-dropdown-border);border-left:none;
+  border-radius:0 4px 4px 0;padding:0 2px;
+  background:var(--vscode-dropdown-background);color:var(--vscode-dropdown-foreground);
+  font-size:10px;font-family:var(--vscode-font-family);cursor:pointer;outline:none;
+  text-align:center;
+}
 .code-block pre { margin:0;padding:8px 12px;overflow-x:auto;background:var(--vscode-editor-background); }
 .code-block code { font-size:11px;font-family:var(--vscode-editor-font-family);line-height:1.5;white-space:pre; }
 .chat-msg-content p { margin:4px 0; }
@@ -525,28 +617,7 @@ svg {
 </head>
 <body>
   <div id="toast" style="display:none;position:fixed;top:8px;left:50%;transform:translateX(-50%);background:#007acc;color:#fff;padding:6px 16px;border-radius:4px;font-size:12px;z-index:999;white-space:nowrap;"></div>
-  <div id="page-welcome" class="page center-page${!onboarded ? ' active' : ''}">
-    <img class="logo" src="${iconUri}" alt="Wardy">
-    <h1>Welcome to Wardy</h1>
-    <p>The activity manager for your AI coding agents. Track, review, and manage your AI-assisted development activity.</p>
-    <button class="btn" data-action="show-auth">
-      <span>→</span> Get Started
-    </button>
-  </div>
-
-  <div id="page-auth" class="page center-page">
-    <img class="logo" src="${iconUri}" alt="Wardy">
-    <h1>Get Started</h1>
-    <p>Sync your activity across devices with Wardy Cloud, or keep everything local.</p>
-    <div class="btn-group">
-      <button class="btn" data-action="login">Log In</button>
-      <button class="btn" data-action="createAccount">Create Account</button>
-      <div class="divider"><span>or</span></div>
-      <button class="btn btn-secondary" data-action="skip">Skip — Use Local Data</button>
-    </div>
-  </div>
-
-  <div id="page-main" class="page${onboarded ? ' active' : ''}">
+  <div id="page-main" class="page active">
     <div class="main-layout">
       <div class="top-nav">
         <button class="nav-tab active" data-tab="activity">Activity</button>
@@ -554,6 +625,7 @@ svg {
         <button class="nav-tab" data-tab="agents">Agents</button>
         <button class="nav-tab" data-tab="integrate">Integrate</button>
         <button class="nav-tab" data-tab="search">Search</button>
+        <button class="nav-tab" data-tab="learn">Learn</button>
       </div>
       <div class="tab-content">
         <div class="tab-pane active" id="tab-activity">
@@ -587,15 +659,16 @@ svg {
           <div class="sort-bar">
             <input class="search-input" id="search-integrate" type="text" placeholder="Search integrations..." data-tab="integrate">
           </div>
-          <div id="integrate-content">
-            <p>Integrate Wardy with your tools and workflows.</p>
-          </div>
+          <div id="integrate-content"></div>
         </div>
         <div class="tab-pane" id="tab-search">
           <div class="sort-bar">
             <input class="search-input" id="search-global" type="text" placeholder="Search everything..." data-tab="search" autofocus>
           </div>
           <div id="search-content"></div>
+        </div>
+        <div class="tab-pane" id="tab-learn">
+          <div id="learn-content" style="padding:16px"></div>
         </div>
       </div>
     </div>
@@ -606,7 +679,13 @@ svg {
       <div class="detail-header">
         <button class="btn btn-secondary" data-action="back-to-activity" style="font-size:11px;padding:6px 10px">← Back</button>
         <div id="detail-title" style="font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1"></div>
-        <button class="btn btn-secondary" data-action="export-session" style="font-size:11px;padding:6px 10px" title="Export this session">⬇ Export</button>
+        <span class="export-group">
+          <button class="btn btn-secondary" data-action="export-session" style="font-size:11px;padding:6px 10px" title="Export this session">⬇ Export</button>
+          <select class="export-fmt" data-action="export-fmt">
+            <option value="json">JSON</option>
+            <option value="txt">TXT</option>
+          </select>
+        </span>
         <button class="btn btn-secondary" data-action="refresh-conversation" style="font-size:11px;padding:6px 10px" title="Re-scan agent data for this session">↻ Refresh</button>
       </div>
       <div id="detail-meta" class="detail-meta"></div>
@@ -619,7 +698,13 @@ svg {
       <div class="agent-detail-header">
         <button class="btn btn-secondary" data-action="back-to-agents" style="font-size:11px;padding:6px 10px">← Back</button>
         <div id="agent-detail-title" class="agent-detail-title"></div>
-        <button class="btn btn-secondary" data-action="export-agent" style="font-size:11px;padding:6px 10px" title="Export all sessions for this agent">⬇ Export Sessions</button>
+        <span class="export-group">
+          <button class="btn btn-secondary" data-action="export-agent" style="font-size:11px;padding:6px 10px" title="Export all sessions for this agent">⬇ Export</button>
+          <select class="export-fmt" data-action="export-fmt">
+            <option value="json">JSON</option>
+            <option value="txt">TXT</option>
+          </select>
+        </span>
       </div>
       <div id="agent-detail-stats" class="agent-detail-stats"></div>
       <div id="agent-detail-sessions" class="agent-detail-sessions"></div>
@@ -631,7 +716,13 @@ svg {
       <div class="agent-detail-header">
         <button class="btn btn-secondary" data-action="back-to-projects" style="font-size:11px;padding:6px 10px">← Back</button>
         <div id="project-detail-title" class="agent-detail-title"></div>
-        <button class="btn btn-secondary" data-action="export-project" style="font-size:11px;padding:6px 10px" title="Export all sessions for this project">⬇ Export Sessions</button>
+        <span class="export-group">
+          <button class="btn btn-secondary" data-action="export-project" style="font-size:11px;padding:6px 10px" title="Export all sessions for this project">⬇ Export</button>
+          <select class="export-fmt" data-action="export-fmt">
+            <option value="json">JSON</option>
+            <option value="txt">TXT</option>
+          </select>
+        </span>
       </div>
       <div id="project-detail-meta" class="detail-meta"></div>
       <div id="project-detail-stats" class="agent-detail-stats"></div>
@@ -645,8 +736,8 @@ svg {
         <div class="settings-sidebar-header">Settings</div>
         <div class="settings-nav">
           <button class="settings-nav-item active" data-spane="general">General</button>
-          <button class="settings-nav-item" data-spane="account">Account</button>
           <button class="settings-nav-item" data-spane="storage">Storage</button>
+          <button class="settings-nav-item" data-spane="learn">Learn</button>
           <button class="settings-nav-item" data-spane="team">Team</button>
         </div>
         <div style="padding:12px">
@@ -663,20 +754,11 @@ svg {
             </div>
             <div class="info-card">
               <label>Status</label>
-              <span><span class="badge badge-local">${statusText}</span></span>
+              <span><span class="badge badge-local">Local</span></span>
             </div>
           </div>
         </div>
-        <div class="settings-pane" id="spane-account">
-          <div class="settings-section">
-            <h2>Account</h2>
-            <p style="text-align:left;max-width:none">Manage your Wardy Cloud account to sync data across devices.</p>
-            <div style="display:flex;gap:8px">
-              <button class="btn" style="flex:1" data-action="login">Log In</button>
-              <button class="btn btn-secondary" style="flex:1" data-action="createAccount">Create Account</button>
-            </div>
-          </div>
-        </div>
+
         <div class="settings-pane" id="spane-storage">
           <div class="settings-section">
             <h2>Storage</h2>
@@ -688,6 +770,32 @@ svg {
                 <button class="btn btn-secondary" style="flex:1" data-action="changeStorage">Change</button>
                 <button class="btn" style="flex:1" data-action="openStorage">Open Location</button>
               </div>
+            </div>
+          </div>
+        </div>
+        <div class="settings-pane" id="spane-learn">
+          <div class="settings-section">
+            <h2>How Wardy Works</h2>
+            <p style="text-align:left;max-width:none">Wardy automatically captures your AI coding sessions — no manual setup needed.</p>
+            <div class="info-card">
+              <label>Auto-Detection</label>
+              <p style="margin-top:4px">Wardy watches agent data directories (like <code>~/.opencode/conversations/</code>) and imports sessions as they're created. This works for OpenCode, Claude Code, Cursor, and more.</p>
+            </div>
+            <div class="info-card">
+              <label>Agent Hooks</label>
+              <p style="margin-top:4px">For Claude Code and Qoder, Wardy can install post-conversation hooks that automatically save every session via the <strong>Integrate</strong> tab.</p>
+            </div>
+            <div class="info-card">
+              <label>Context vs Tokens</label>
+              <p style="margin-top:4px">The "Context" number shown is an estimate of total tokens (prompt + completion) for a session. This is approximated from message length and may differ from actual API usage.</p>
+            </div>
+            <div class="info-card">
+              <label>Data Storage</label>
+              <p style="margin-top:4px">All data is stored locally in the Wardy storage directory. You can change or open it in the <strong>Storage</strong> settings tab.</p>
+            </div>
+            <div class="info-card">
+              <label>HTTP API</label>
+              <p style="margin-top:4px">Wardy runs a local HTTP server on port 9876. Any agent or script can POST session data to <code>http://127.0.0.1:9876/api/save</code>.</p>
             </div>
           </div>
         </div>
@@ -711,6 +819,8 @@ class WardyViewProvider implements vscode.WebviewViewProvider {
   private _webviewView: vscode.WebviewView | undefined;
   private _agentStore: AgentStore | undefined;
   _agentDetector: AgentDetector | undefined;
+  private _server: AgentServer | undefined;
+  private _autoSaveConfigured = new Set<string>();
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -731,11 +841,44 @@ class WardyViewProvider implements vscode.WebviewViewProvider {
         this.postMessage({ command: 'updateProjects', projects: this.getProjectsJson() });
       });
       this._agentDetector.startWatching(os.homedir());
+
+      const serverPort = vscode.workspace.getConfiguration('wardy').get<number>('serverPort') || 9876;
+      this._server = new AgentServer(this._agentStore, (session) => {
+        this.postMessage({ command: 'realtimeUpdate', newSessions: 1, running: 0 });
+        this.postMessage({ command: 'updateSessions', sessions: this.getAllSessionsJson() });
+        this.postMessage({ command: 'updateAgents', summary: this.getAgentSummaryJson(), processes: [] });
+        this.postMessage({ command: 'updateProjects', projects: this.getProjectsJson() });
+      }, serverPort);
+      this._server.start();
     } catch {}
+  }
+
+  private reinitStorage(newPath: string): void {
+    try {
+      this._agentDetector?.stopWatching();
+      this._agentStore = new AgentStore(newPath);
+      this._agentDetector = new AgentDetector(this._agentStore);
+      this._agentDetector.setWorkspacePaths(
+        vscode.workspace.workspaceFolders?.map(f => normPath(f.uri.fsPath)) || []
+      );
+      this._agentDetector.onUpdate((newSessions, running) => {
+        this.postMessage({ command: 'realtimeUpdate', newSessions: newSessions.length, running: running.length });
+        this.postMessage({ command: 'updateSessions', sessions: this.getAllSessionsJson() });
+        this.postMessage({ command: 'updateAgents', summary: this.getAgentSummaryJson(), processes: running });
+        this.postMessage({ command: 'updateProjects', projects: this.getProjectsJson() });
+      });
+      this._agentDetector.startWatching(os.homedir());
+      this.postMessage({ command: 'updateSessions', sessions: this.getAllSessionsJson() });
+      this.postMessage({ command: 'updateAgents', summary: this.getAgentSummaryJson() });
+      this.postMessage({ command: 'updateProjects', projects: this.getProjectsJson() });
+    } catch (e) {
+      vscode.window.showErrorMessage(`Wardy: failed to reinitialize storage at ${newPath}: ${e}`);
+    }
   }
 
   dispose(): void {
     this._agentDetector?.stopWatching();
+    this._server?.stop();
   }
 
   postMessage(message: any) {
@@ -862,13 +1005,17 @@ class WardyViewProvider implements vscode.WebviewViewProvider {
         return;
       }
 
-      const format = await vscode.window.showQuickPick(
-        ['JSON', 'Text (TXT)'],
-        { placeHolder: `Export ${sessions.length} session(s) as...` }
-      );
-      if (!format) return;
+      let format = message.format;
+      if (!format) {
+        const picked = await vscode.window.showQuickPick(
+          ['JSON', 'Text (TXT)'],
+          { placeHolder: `Export ${sessions.length} session(s) as...` }
+        );
+        if (!picked) return;
+        format = picked === 'JSON' ? 'json' : 'txt';
+      }
 
-      const isJson = format === 'JSON';
+      const isJson = format === 'json';
       const ext = isJson ? '.json' : '.txt';
       const defaultName = (contextName || 'wardy-export').replace(/[^a-zA-Z0-9_-]/g, '_');
 
@@ -893,6 +1040,8 @@ class WardyViewProvider implements vscode.WebviewViewProvider {
       vscode.window.showInformationMessage(`Exported ${sessions.length} session(s) to ${uri.fsPath}`);
     } catch (e: any) {
       vscode.window.showErrorMessage(`Export failed: ${e.message || e}`);
+    } finally {
+      this.postMessage({ command: 'exportComplete' });
     }
   }
 
@@ -901,21 +1050,43 @@ class WardyViewProvider implements vscode.WebviewViewProvider {
       exportedAt: new Date().toISOString(),
       format: 'wardy-sessions-export-v1',
       totalSessions: sessions.length,
-      sessions: sessions.map(s => ({
-        id: s.id,
-        agentName: s.agentName,
-        provider: s.provider,
-        model: s.model,
-        title: s.title,
-        startTime: s.startTime,
-        endTime: s.endTime,
-        durationMs: s.durationMs,
-        promptCount: s.promptCount,
-        totalTokens: s.totalTokens,
-        projectPath: s.projectPath,
-        source: s.source,
-        metadata: s.metadata || {},
-      })),
+      sessions: sessions.map(s => {
+        const obj: any = {
+          id: s.id,
+          agentName: s.agentName,
+          provider: s.provider,
+          model: s.model,
+          title: s.title,
+          startTime: s.startTime,
+          endTime: s.endTime,
+          durationMs: s.durationMs,
+          promptCount: s.promptCount,
+          totalTokens: s.totalTokens,
+          projectPath: s.projectPath,
+          source: s.source,
+        };
+        if (s.metadata?.conversation) {
+          try {
+            const msgs = JSON.parse(s.metadata.conversation as string);
+            obj.conversation = msgs.map((m: any, i: number) => ({
+              index: i + 1,
+              role: m.role,
+              timestamp: m.timestamp || null,
+              tokens: m.tokens || 0,
+              content: m.content || '',
+              ...(m.tool_calls ? { tool_calls: m.tool_calls } : {}),
+              ...(m.is_thinking ? { is_thinking: true, thinking_duration: m.thinking_duration || null } : {}),
+              ...(m.tool_name ? { tool_name: m.tool_name, tool_input: m.tool_input || null } : {}),
+            }));
+          } catch {}
+        }
+        if (s.metadata) {
+          const rest = { ...s.metadata };
+          delete rest.conversation;
+          if (Object.keys(rest).length > 0) obj.metadata = rest;
+        }
+        return obj;
+      }),
     };
     return JSON.stringify(data, null, 2);
   }
@@ -944,11 +1115,32 @@ class WardyViewProvider implements vscode.WebviewViewProvider {
           const messages = JSON.parse(s.metadata.conversation as string);
           text += '\nConversation:\n';
           for (const m of messages) {
-            const role = m.role === 'user' ? 'User' : m.role === 'assistant' ? 'Assistant' : m.role === 'system' ? 'System' : m.role;
-            const time = m.timestamp ? ` (${new Date(m.timestamp).toLocaleTimeString()})` : '';
-            text += `\n[${role}${time}]\n`;
-            const content = String(m.content || '');
-            text += content + '\n';
+            const role = m.role === 'user' ? 'USER' : m.role === 'assistant' ? 'ASSISTANT' : m.role === 'system' ? 'SYSTEM' : m.role.toUpperCase();
+            const time = m.timestamp ? ` (${new Date(m.timestamp).toLocaleString()})` : '';
+            const tokens = m.tokens ? ` [${m.tokens} tok]` : '';
+            text += `\n──── ${role}${time}${tokens} ────\n`;
+
+            if (m.is_thinking) {
+              const dur = m.thinking_duration ? ` (${(m.thinking_duration / 1000).toFixed(1)}s)` : '';
+              text += `🤔 Thinking${dur}\n`;
+            }
+
+            if (m.tool_calls && m.tool_calls.length > 0) {
+              for (const tc of m.tool_calls) {
+                text += `\n🔧 Tool: ${tc.name}\n`;
+                if (tc.arguments) text += `  Arguments: ${JSON.stringify(tc.arguments, null, 2).replace(/\n/g, '\n  ')}\n`;
+                if (tc.content) text += `  Result: ${tc.content}\n`;
+              }
+            }
+
+            if (m.tool_name) {
+              text += `\n[Tool: ${m.tool_name}]\n`;
+              if (m.tool_input) text += `${JSON.stringify(m.tool_input, null, 2)}\n`;
+            }
+
+            if (m.content) {
+              text += m.content + '\n';
+            }
           }
         } catch {}
       }
@@ -956,6 +1148,196 @@ class WardyViewProvider implements vscode.WebviewViewProvider {
     }
 
     return text;
+  }
+
+  private getAgentDataDir(name: string): string | null {
+    const agent = KNOWN_AGENTS.find(a => a.name === name);
+    if (!agent) return null;
+    // Use first data path relative to home
+    if (agent.dataPaths.length > 0) {
+      return path.join(os.homedir(), agent.dataPaths[0].path);
+    }
+    return null;
+  }
+
+  private async handleEnableAutoSave(agentName: string): Promise<void> {
+    const home = os.homedir();
+    const endpoint = this._server?.getUrl() ? `${this._server.getUrl()}/api/save` : 'http://127.0.0.1:9876/api/save';
+
+    // Verify the agent's conversation directory is being watched by the detector
+    const agentDir = this.getAgentDataDir(agentName);
+    let convDirWatched = false;
+    if (agentDir) {
+      const convDir = path.join(agentDir, 'conversations');
+      convDirWatched = fs.existsSync(convDir);
+    }
+
+    let message = '';
+
+    switch (agentName) {
+      case 'Claude Code': {
+        const dir = path.join(home, '.claude');
+        if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
+        const settingsPath = path.join(dir, 'settings.json');
+        let settings: any = {};
+        if (fs.existsSync(settingsPath)) {
+          try { settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')); } catch {}
+        }
+        const hooks = settings.hooks || {};
+        hooks.postConversation = hooks.postConversation || [];
+        const hookCmd = `cat - | curl -X POST ${endpoint} -H "Content-Type: application/json" -d @-`;
+        if (!hooks.postConversation.includes(hookCmd)) {
+          hooks.postConversation.push(hookCmd);
+        }
+        settings.hooks = hooks;
+        fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+        message = 'Claude Code auto-save enabled. postConversation hook added.';
+        break;
+      }
+      case 'Qoder': {
+        const dir = path.join(home, '.qoder');
+        if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
+        const settingsPath = path.join(dir, 'settings.json');
+        let settings: any = {};
+        if (fs.existsSync(settingsPath)) {
+          try { settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')); } catch {}
+        }
+        const hooks = settings.hooks || {};
+        hooks.SessionEnd = hooks.SessionEnd || [];
+        const hookCmd = `cat - | curl -X POST ${endpoint} -H "Content-Type: application/json" -d @-`;
+        if (!hooks.SessionEnd.includes(hookCmd)) {
+          hooks.SessionEnd.push(hookCmd);
+        }
+        settings.hooks = hooks;
+        fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+        message = 'Qoder auto-save enabled. SessionEnd hook added.';
+        break;
+      }
+      default: {
+        // For agents without hooks, auto-detection via file watcher is already active
+        if (convDirWatched) {
+          message = `Wardy is already auto-detecting ${agentName} conversations from ${agentDir}/conversations/. No agent setup needed.`;
+        } else {
+          message = `Wardy does not have a hook integration for ${agentName}. However, sessions are still captured automatically via process monitoring.`;
+        }
+        break;
+      }
+    }
+
+    this._autoSaveConfigured.add(agentName);
+    vscode.window.showInformationMessage(message);
+    this.postMessage({ command: 'autoSaveStatus', agentName, enabled: true });
+  }
+
+  private getIntegrationInfoJson(): string {
+    try {
+      const serverUrl = this._server?.getUrl() || '';
+      const running = this._agentDetector?.detectRunningProcesses() || [];
+      const runningNames = running.map(r => r.name);
+      const uniqueRunning = [...new Set(runningNames)];
+
+      const agents = KNOWN_AGENTS.map(a => {
+        const dir = this.getAgentDataDir(a.name);
+        const hasDir = dir ? fs.existsSync(dir) : false;
+        const isRunning = uniqueRunning.includes(a.name);
+        const hasData = !!(a.dataPaths.length > 0);
+        return {
+          name: a.name,
+          provider: a.provider,
+          hasDataDir: hasDir,
+          isRunning,
+          hasData,
+          dataDir: dir || '',
+          autoSaveConfigured: this._autoSaveConfigured.has(a.name),
+        };
+      });
+
+      return JSON.stringify({ serverUrl, agents });
+    } catch {
+      return '{}';
+    }
+  }
+
+  private buildAgentPrompt(): string {
+    const endpoint = this._server?.getUrl() || 'http://127.0.0.1:9876';
+    return `This conversation is automatically saved by Wardy via file detection. No manual save step is needed.
+
+If automatic detection fails as a fallback, you can manually save by running this after your last message:
+
+curl -X POST ${endpoint}/api/save -H "Content-Type: application/json" -d @- << 'WARDY_EOF'
+{
+  "agent": "YOUR_AGENT_NAME",
+  "model": "YOUR_MODEL",
+  "project": "$PWD",
+  "messages": CONVERSATION_JSON
+}
+WARDY_EOF`;
+  }
+
+  private async handleSearchMessages(query: string): Promise<void> {
+    try {
+      if (!this._agentStore) {
+        this.postMessage({ command: 'searchResults', results: '[]' });
+        return;
+      }
+      const all = this._agentStore.getAll();
+      const q = query.toLowerCase();
+      const results: Array<{
+        sessionId: string;
+        title: string;
+        agentName: string;
+        startTime: string;
+        snippets: string[];
+      }> = [];
+
+      for (const session of all) {
+        let convStr = session.metadata?.conversation;
+        if (!convStr && this._agentDetector) {
+          try {
+            const msgs = this._agentDetector.getConversationForSession(session);
+            if (msgs && msgs.length > 0) {
+              convStr = JSON.stringify(msgs);
+              session.metadata = session.metadata || {};
+              session.metadata.conversation = convStr;
+              this._agentStore.add(session);
+            }
+          } catch {}
+        }
+        if (!convStr) continue;
+
+        try {
+          const messages = JSON.parse(convStr);
+          if (!Array.isArray(messages)) continue;
+          const snippets: string[] = [];
+          for (const m of messages) {
+            const content = m.content || '';
+            if (content.toLowerCase().includes(q)) {
+              const idx = content.toLowerCase().indexOf(q);
+              const start = Math.max(0, idx - 60);
+              const end = Math.min(content.length, idx + q.length + 60);
+              let snippet = content.slice(start, end);
+              if (start > 0) snippet = '...' + snippet;
+              if (end < content.length) snippet = snippet + '...';
+              snippets.push(snippet);
+              if (snippets.length >= 3) break;
+            }
+          }
+          if (snippets.length > 0) {
+            results.push({
+              sessionId: session.id,
+              title: session.title || 'Untitled',
+              agentName: session.agentName,
+              startTime: session.startTime,
+              snippets,
+            });
+          }
+        } catch {}
+      }
+
+      this.postMessage({ command: 'searchResults', results: JSON.stringify(results) });
+    } catch {
+      this.postMessage({ command: 'searchResults', results: '[]' });
+    }
   }
 
   resolveWebviewView(
@@ -978,38 +1360,24 @@ class WardyViewProvider implements vscode.WebviewViewProvider {
 
     let userName = 'User';
     let storagePath = this._globalStoragePath;
-    let onboarded = false;
-    let statusText = 'Local';
     let agentSummary = '[]';
     let sessions = '[]';
     let projects = '[]';
+    let serverUrl = '';
     try {
       userName = os.userInfo().username;
       storagePath = vscode.workspace.getConfiguration('wardy').get<string>('storagePath') || this._globalStoragePath;
-      onboarded = this._globalState.get<boolean>('wardy.onboarded', false);
-      statusText = this._globalState.get<string>('wardy.status', 'Local');
       agentSummary = this.getAgentSummaryJson();
       sessions = this.getAllSessionsJson();
       projects = this.getProjectsJson();
+      serverUrl = this._server?.getUrl() || '';
     } catch {} 
 
     const scriptUri = webviewView.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'src', 'webview.js'));
-    webviewView.webview.html = getHtml(iconUri, scriptUri.toString(), userName, storagePath, onboarded, statusText, agentSummary, sessions, projects);
+    webviewView.webview.html = getHtml(iconUri, scriptUri.toString(), userName, storagePath, agentSummary, sessions, projects, serverUrl);
 
     webviewView.webview.onDidReceiveMessage((message) => {
       switch (message.command) {
-        case 'login':
-          vscode.commands.executeCommand('wardy.login');
-          this.postMessage({ command: 'goToMain' });
-          break;
-        case 'createAccount':
-          vscode.commands.executeCommand('wardy.createAccount');
-          this.postMessage({ command: 'goToMain' });
-          break;
-        case 'skip':
-          vscode.commands.executeCommand('wardy.skip');
-          this.postMessage({ command: 'goToMain' });
-          break;
         case 'openStorage': {
           const p = vscode.workspace.getConfiguration('wardy').get<string>('storagePath');
           vscode.env.openExternal(vscode.Uri.file(p || this._globalStoragePath));
@@ -1018,8 +1386,11 @@ class WardyViewProvider implements vscode.WebviewViewProvider {
         case 'changeStorage': {
           vscode.window.showOpenDialog({ canSelectFolders: true }).then(uri => {
             if (uri && uri[0]) {
-              vscode.workspace.getConfiguration('wardy').update('storagePath', uri[0].fsPath, vscode.ConfigurationTarget.Global);
-              this.postMessage({ command: 'updateStoragePath', path: uri[0].fsPath });
+              const newPath = uri[0].fsPath;
+              vscode.workspace.getConfiguration('wardy').update('storagePath', newPath, vscode.ConfigurationTarget.Global);
+              this.reinitStorage(newPath);
+              this.postMessage({ command: 'updateStoragePath', path: newPath });
+              vscode.window.showInformationMessage(`Wardy storage path changed to ${newPath}`);
             }
           });
           break;
@@ -1046,6 +1417,22 @@ class WardyViewProvider implements vscode.WebviewViewProvider {
         case 'exportSessions':
           this.handleExport(message);
           break;
+        case 'getIntegrationInfo':
+          this.postMessage({ command: 'integrationInfo', info: this.getIntegrationInfoJson() });
+          break;
+        case 'copyAgentPrompt':
+          this.postMessage({ command: 'agentPrompt', prompt: this.buildAgentPrompt() });
+          break;
+        case 'enableAutoSave':
+          if (message.agentName) {
+            this.handleEnableAutoSave(message.agentName);
+          }
+          break;
+        case 'searchMessages':
+          if (message.query) {
+            this.handleSearchMessages(message.query);
+          }
+          break;
         default: {
           if (typeof message.command === 'string') {
             if (message.command.startsWith('getConversation:') || message.command.startsWith('refreshConversation:')) {
@@ -1056,14 +1443,14 @@ class WardyViewProvider implements vscode.WebviewViewProvider {
                 const all = this._agentStore.getAll();
                 const session = all.find(s => s.id === sessionId);
                 if (session && session.metadata?.conversation && !forceRefresh) {
-                  this.postMessage({ command: 'showConversation', messages: session.metadata.conversation });
+                  this.postMessage({ command: 'showConversation', messages: session.metadata.conversation, modelName: session.model });
                 } else if (session && this._agentDetector) {
                   const msgs = this._agentDetector.getConversationForSession(session);
                   if (msgs && msgs.length > 0) {
                     session.metadata = session.metadata || {};
                     session.metadata.conversation = JSON.stringify(msgs);
                     this._agentStore?.add(session);
-                    this.postMessage({ command: 'showConversation', messages: session.metadata.conversation });
+                    this.postMessage({ command: 'showConversation', messages: session.metadata.conversation, modelName: session.model });
                   } else {
                     this.postMessage({ command: 'showConversation', messages: '[]' });
                   }
@@ -1087,29 +1474,6 @@ class WardyViewProvider implements vscode.WebviewViewProvider {
 
 export function activate(context: vscode.ExtensionContext) {
   try {
-    context.subscriptions.push(
-      vscode.commands.registerCommand('wardy.login', () => {
-        context.globalState.update('wardy.onboarded', true);
-        context.globalState.update('wardy.status', 'Cloud');
-        vscode.window.showInformationMessage('Wardy Cloud login — coming soon!');
-      }),
-    );
-
-    context.subscriptions.push(
-      vscode.commands.registerCommand('wardy.createAccount', () => {
-        context.globalState.update('wardy.onboarded', true);
-        context.globalState.update('wardy.status', 'Cloud');
-        vscode.window.showInformationMessage('Create a Wardy Cloud account — coming soon!');
-      }),
-    );
-
-    context.subscriptions.push(
-      vscode.commands.registerCommand('wardy.skip', () => {
-        context.globalState.update('wardy.onboarded', true);
-        context.globalState.update('wardy.status', 'Local');
-      }),
-    );
-
     wardyProvider = new WardyViewProvider(context.extensionUri, context.globalStorageUri.fsPath, context.globalState);
     const provider = wardyProvider;
 

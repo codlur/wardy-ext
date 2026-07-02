@@ -15,6 +15,27 @@ function estimateTokens(text: string): number {
   return Math.max(1, Math.round(text.length / 4));
 }
 
+function toChatMessage(m: any): ChatMessage {
+  const msg: ChatMessage = {
+    role: String(m.role || 'user'),
+    content: String(m.content || ''),
+    timestamp: m.timestamp || m.created_at || undefined,
+    tokens: m.tokens || (m.content ? estimateTokens(String(m.content)) : 0),
+  };
+  if (m.tool_calls) {
+    msg.tool_calls = m.tool_calls.map((tc: any) => ({
+      name: String(tc.name || tc.function?.name || ''),
+      arguments: tc.arguments || tc.function?.arguments || {},
+      content: tc.content || undefined,
+    }));
+  }
+  if (m.is_thinking) msg.is_thinking = true;
+  if (typeof m.thinking_duration === 'number') msg.thinking_duration = m.thinking_duration;
+  if (m.tool_name) msg.tool_name = String(m.tool_name);
+  if (m.tool_input) msg.tool_input = m.tool_input;
+  return msg;
+}
+
 function extractTitle(messages: ChatMessage[]): string {
   const firstUser = messages.find(m => m.role === 'user');
   if (firstUser) {
@@ -981,12 +1002,7 @@ export class AgentDetector {
             const raw = fs.readFileSync(fp, 'utf-8');
             const conv = JSON.parse(raw);
             const messages: ChatMessage[] = Array.isArray(conv.messages)
-              ? conv.messages.map((m: any) => ({
-                  role: String(m.role || 'user'),
-                  content: String(m.content || ''),
-                  timestamp: m.timestamp || m.created_at || undefined,
-                  tokens: m.tokens || (m.content ? estimateTokens(String(m.content)) : 0),
-                }))
+              ? conv.messages.map((m: any) => toChatMessage(m))
               : [];
             if (messages.length === 0) continue;
 
@@ -1023,12 +1039,7 @@ export class AgentDetector {
             const raw = fs.readFileSync(fp, 'utf-8');
             const conv = JSON.parse(raw);
             const messages: ChatMessage[] = Array.isArray(conv.messages)
-              ? conv.messages.map((m: any) => ({
-                  role: String(m.role || 'user'),
-                  content: String(m.content || ''),
-                  timestamp: m.timestamp || m.created_at || undefined,
-                  tokens: m.tokens || (m.content ? estimateTokens(String(m.content)) : 0),
-                }))
+              ? conv.messages.map((m: any) => toChatMessage(m))
               : [];
             if (messages.length > 0) {
               if (bestScore < 1) {

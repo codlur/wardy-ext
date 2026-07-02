@@ -8,6 +8,47 @@ Think of it as **Git for AI activity**: every prompt, every decision, every chan
 
 ---
 
+## Features
+
+### ✅ Implemented
+
+| Feature | Description |
+|---|---|
+| **Auto-Detection** | Automatically detects running AI agents (Claude Code, OpenCode, Cursor, Codex CLI, etc.) with zero config |
+| **Real-Time Session Capture** | Watches agent data files and captures sessions as they happen |
+| **Unified Timeline** | All sessions from all agents in one reverse-chronological feed |
+| **Full-Text Search** | Search across session titles, metadata, **and message content** with context snippets |
+| **Project Grouping** | Sessions organized by project, with per-project stats |
+| **Agent Dashboards** | Per-agent stats: sessions, prompts, tokens, last active |
+| **Conversation Viewer** | Expandable accordion UI with thinking blocks, tool calls, and code blocks |
+| **Conversation Copy** | One-click copy on code blocks |
+| **Export** | Sessions exportable as JSON or plain text (single, by-agent, by-project) |
+| **HTTP API** | POST `/api/save` endpoint for any agent to push session data programmatically |
+| **One-Click Auto-Save** | Configure Claude Code, Qoder, OpenCode, Cursor, and others to auto-save conversations |
+| **Real-Time Updates** | Toast notifications when new sessions are detected |
+| **VS Code Sidebar** | Native VS Code webview panel with dark/light theme support |
+| **Local-First** | All data stored locally — no telemetry, no phone-home |
+| **Search** | Search across sessions, agents, projects, and message content |
+| **Token Tracking** | Token counts per session with human-readable formatting |
+| **Agent Prompt** | Copyable prompt to give agents for auto-saving |
+
+### 🚧 In Development / Planned
+
+| Feature | Status |
+|---|---|
+| **PDF / Excel / Word Export** | Only JSON/TXT currently |
+| **Slack / Email Daily Digest** | README mentions it, not yet built |
+| **Team Dashboard** | Coming in a future release |
+| **Diff View** | Link sessions to file changes |
+| **Git Integration** | Link sessions to commits, blame |
+| **Cost Tracking** | Multiply tokens by model pricing |
+| **Session Comparison** | Side-by-side comparison of two AI sessions |
+| **Prompt Library** | Save and reuse successful prompts |
+| **Semantic Search** | Vector-based search over conversation content |
+| **Auto-Tagging** | Automatic categorization by intent (debug, feature, refactor) |
+
+---
+
 ## What Wardy Collects
 
 | Data | Details |
@@ -31,8 +72,8 @@ Think of it as **Git for AI activity**: every prompt, every decision, every chan
 - Keep a private, local-first record under your control
 
 **For Teams**
-- Generate **AI Activity Reports** as PDF, Excel, or Word for audits, stand-ups, and retrospectives
-- Send automated daily summaries to **Slack** — keep everyone aligned without leaving the editor
+- Generate **AI Activity Reports** as PDF, Excel, or Word for audits, stand-ups, and retrospectives (coming soon)
+- Send automated daily summaries to **Slack** — keep everyone aligned without leaving the editor (coming soon)
 - Track which agents and models your team relies on, and how much they're used
 - Export compliance-ready audit trails of all AI-assisted changes
 
@@ -67,7 +108,7 @@ Wardy auto-detects and tracks sessions from:
 1. **Install** Wardy in VS Code — it activates automatically in your sidebar
 2. **Use your AI agents normally** — Wardy watches for running agents and new conversation files in real time
 3. **Review your timeline** — every session, prompt, and change appears instantly in the Wardy sidebar
-4. **Search, filter, and analyze** — find any interaction across projects, agents, or timeframes
+4. **Search, filter, and analyze** — find any interaction across projects, agents, timeframes, or **message content**
 5. **Export and share** — generate reports or send summaries to Slack
 
 ---
@@ -85,7 +126,6 @@ Visual Studio Code 1.90.0+ required. Works out of the box with zero configuratio
 - **Local-first**: All data stays on your machine in your extension storage directory
 - **No telemetry**: Wardy does not phone home, track usage, or send data to any external server
 - **You own your history**: Export, delete, or archive your AI activity data at any time
-- **Optional cloud sync**: Login to Wardy Cloud for cross-device sync (coming soon)
 
 ---
 

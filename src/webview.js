@@ -3,6 +3,7 @@ let agentSummary = [];
 let sessions = [];
 let projects = [];
 let GENERIC_ICON = '';
+let SERVER_URL = '';
 const KNOWN_AGENTS = [];
 (function() {
   try {
@@ -17,6 +18,7 @@ const KNOWN_AGENTS = [];
         KNOWN_AGENTS.push(...data.knownAgents);
       }
       if (data.genericIcon) GENERIC_ICON = data.genericIcon;
+      if (data.serverUrl) SERVER_URL = data.serverUrl;
     }
   } catch {}
 })();
@@ -37,7 +39,9 @@ function switchTab(name) {
   if (name === 'activity') renderActivity();
   if (name === 'projects') renderProjects();
   if (name === 'agents') renderAgents();
+  if (name === 'integrate') renderIntegrate();
   if (name === 'search') renderSearch();
+  if (name === 'learn') renderLearn();
 }
 
 function postMsg(command) {
@@ -48,24 +52,85 @@ document.addEventListener('click', e => {
   const btn = e.target.closest('[data-action]');
   if (!btn) return;
   const action = btn.dataset.action;
-  if (action === 'show-auth') showPage('page-auth');
-  else if (action === 'show-main') showPage('page-main');
+  if (action === 'show-main') showPage('page-main');
   else if (action === 'back-to-activity') { showPage('page-main'); switchTab('activity'); }
-  else if (action === 'login' || action === 'createAccount' || action === 'skip' || action === 'changeStorage' || action === 'openStorage' || action === 'scanAgents') postMsg(action);
+  else if (action === 'changeStorage' || action === 'openStorage' || action === 'scanAgents') postMsg(action);
   else if (action === 'view-session') { postMsg('getConversation:' + btn.dataset.sessionId); }
   else if (action === 'refresh-conversation') { postMsg('refreshConversation:' + currentSessionId); }
   else if (action === 'export-session') {
-    vscode.postMessage({ command: 'exportSessions', sessionIds: [currentSessionId], contextName: currentSessionTitle });
+    const fmt = getExportFormat(btn);
+    setExporting(btn);
+    vscode.postMessage({ command: 'exportSessions', sessionIds: [currentSessionId], contextName: currentSessionTitle, format: fmt });
   }
   else if (action === 'export-agent') {
-    vscode.postMessage({ command: 'exportSessions', agentName: currentAgentName, contextName: currentAgentName + '-sessions' });
+    const fmt = getExportFormat(btn);
+    setExporting(btn);
+    vscode.postMessage({ command: 'exportSessions', agentName: currentAgentName, contextName: currentAgentName + '-sessions', format: fmt });
   }
   else if (action === 'export-project') {
-    vscode.postMessage({ command: 'exportSessions', projectPath: currentProjectPath, contextName: currentProjectName + '-sessions' });
+    const fmt = getExportFormat(btn);
+    setExporting(btn);
+    vscode.postMessage({ command: 'exportSessions', projectPath: currentProjectPath, contextName: currentProjectName + '-sessions', format: fmt });
   }
   else if (action === 'back-to-agents') { showPage('page-main'); switchTab('agents'); }
   else if (action === 'back-to-projects') { showPage('page-main'); switchTab('projects'); }
+  else if (action === 'copyEndpoint') {
+    const url = (SERVER_URL || 'http://127.0.0.1:9876') + '/api/save';
+    copyToClipboard(url, 'Endpoint URL copied!');
+  }
+  else if (action === 'copyCurlExample') {
+    const url = (SERVER_URL || 'http://127.0.0.1:9876') + '/api/save';
+    const example = 'curl -X POST ' + url + ' \\\n  -H "Content-Type: application/json" \\\n  -d \'{\n    "agent": "OpenCode",\n    "model": "claude-sonnet-4",\n    "project": "/path/to/project",\n    "messages": [\n      {"role": "user", "content": "hello", "timestamp": "2025-01-01T00:00:00Z"},\n      {"role": "assistant", "content": "hi", "timestamp": "2025-01-01T00:00:05Z"}\n    ]\n  }\'';
+    copyToClipboard(example, 'curl example copied!');
+  }
+  else if (action === 'copyAgentPrompt') {
+    const el = document.getElementById('agent-prompt-text');
+    if (el) copyToClipboard(el.textContent, 'Agent prompt copied!');
+  }
+  else if (action === 'refreshAgentPrompt') {
+    vscode.postMessage({ command: 'copyAgentPrompt' });
+  }
+  else if (action.indexOf('enableAutoSave:') === 0) {
+    const agentName = action.slice('enableAutoSave:'.length);
+    vscode.postMessage({ command: 'enableAutoSave', agentName: agentName });
+  }
 });
+
+function copyToClipboard(text, message) {
+  navigator.clipboard.writeText(text).then(function() {
+    const toast = document.getElementById('toast');
+    if (toast) {
+      toast.textContent = message;
+      toast.style.display = 'block';
+      setTimeout(function() { toast.style.display = 'none'; }, 2000);
+    }
+  });
+}
+
+function getExportFormat(btn) {
+  const group = btn.closest('.export-group');
+  if (group) {
+    const sel = group.querySelector('.export-fmt');
+    if (sel) return sel.value;
+  }
+  return 'json';
+}
+
+function setExporting(btn) {
+  btn.disabled = true;
+  btn.dataset.origText = btn.textContent;
+  btn.textContent = '⏳ Exporting...';
+}
+
+function restoreExportButtons() {
+  document.querySelectorAll('.export-group .btn').forEach(function(btn) {
+    if (btn.disabled) {
+      btn.disabled = false;
+      btn.textContent = btn.dataset.origText || '⬇ Export';
+      delete btn.dataset.origText;
+    }
+  });
+}
 
 document.addEventListener('click', e => {
   const item = e.target.closest('.session-item');
@@ -173,7 +238,42 @@ window.addEventListener('message', event => {
       setTimeout(function() { toast.style.display = 'none'; }, 3000);
     }
   } else if (msg.command === 'showConversation') {
+    currentModelName = msg.modelName || '';
     if (msg.messages) showConversation(JSON.parse(msg.messages));
+  } else if (msg.command === 'exportComplete') {
+    restoreExportButtons();
+  } else if (msg.command === 'updateServerUrl') {
+    if (msg.url) SERVER_URL = msg.url;
+    renderIntegrate();
+  } else if (msg.command === 'integrationInfo') {
+    if (msg.info) {
+      try {
+        integrationInfo = JSON.parse(msg.info);
+        if (integrationInfo.agents) {
+          for (const a of integrationInfo.agents) {
+            if (a.autoSaveConfigured) autoSaveEnabled[a.name] = true;
+          }
+        }
+      } catch {}
+    }
+    renderIntegrate();
+  } else if (msg.command === 'agentPrompt') {
+    const el = document.getElementById('agent-prompt-text');
+    if (el && msg.prompt) el.textContent = msg.prompt;
+  } else if (msg.command === 'autoSaveStatus') {
+    autoSaveEnabled[msg.agentName] = true;
+    const toast = document.getElementById('toast');
+    if (toast) {
+      toast.textContent = esc(msg.agentName) + ' auto-save enabled!';
+      toast.style.display = 'block';
+      setTimeout(function() { toast.style.display = 'none'; }, 3000);
+    }
+    renderIntegrate();
+  } else if (msg.command === 'searchResults') {
+    if (msg.results) {
+      try { searchResultsCache = JSON.parse(msg.results); } catch {}
+    }
+    renderSearch();
   }
 });
 
@@ -186,6 +286,7 @@ let currentSessionTitle = '';
 let currentAgentName = '';
 let currentProjectPath = '';
 let currentProjectName = '';
+let currentModelName = '';
 
 function renderActivity() {
   const el = document.getElementById('activity-content');
@@ -225,7 +326,7 @@ function renderActivity() {
     html += '<div class="session-meta">';
     html += '<span>' + info.icon + ' ' + esc(s.agentName) + '</span>';
     html += '<span>' + time + '</span>';
-    if (s.totalTokens) html += '<span>' + formatTokens(s.totalTokens) + ' tokens</span>';
+    if (s.totalTokens) html += '<span>' + formatTokens(s.totalTokens) + ' ctx</span>';
     if (s.projectPath) html += '<span>' + esc(s.projectPath) + '</span>';
     if (!hasMsgs) html += '<span style="color:var(--vscode-descriptionForeground);font-style:italic">no messages</span>';
     html += '</div></div>';
@@ -256,7 +357,6 @@ function renderCodeBlock(code, lang) {
 
 function renderMessageContent(text) {
   const blocks = [];
-  let remaining = text;
   let lastIdx = 0;
   var regex = /```(\w*)\n?([\s\S]*?)```/g;
   let match;
@@ -279,12 +379,20 @@ function renderMessageContent(text) {
   }).join('');
 }
 
+function getMsgPreview(text, maxLen) {
+  if (!text) return '';
+  maxLen = maxLen || 120;
+  var cleaned = text.replace(/```[\s\S]*?```/g, '[code block]').replace(/\s+/g, ' ').trim();
+  if (cleaned.length <= maxLen) return cleaned;
+  return cleaned.slice(0, maxLen) + '...';
+}
+
 function showSessionDetail(session) {
   currentSessionId = session.id;
   currentSessionTitle = session.title || 'Untitled';
   document.getElementById('detail-title').textContent = currentSessionTitle;
   const info = KNOWN_AGENTS.find(k => k.name === session.agentName) || { icon: GENERIC_ICON };
-  const tokenStr = session.totalTokens ? formatTokens(session.totalTokens) + ' tokens' : '';
+  const tokenStr = session.totalTokens ? formatTokens(session.totalTokens) + ' ctx' : '';
   document.getElementById('detail-meta').innerHTML =
     '<span>' + info.icon + ' ' + esc(session.agentName) + '</span>' +
     '<span>' + session.model + '</span>' +
@@ -304,25 +412,58 @@ function showConversation(messages) {
   let html = '';
   for (var i = 0; i < messages.length; i++) {
     var m = messages[i];
-    var role = m.role === 'user' ? 'You' : m.role === 'assistant' ? 'Assistant' : m.role === 'system' ? 'System' : m.role;
+    var roleLabel = m.role === 'user' ? 'You' : m.role === 'assistant' ? (currentModelName || 'Assistant') : m.role === 'system' ? 'System' : m.role;
     var timeStr = m.timestamp ? ' <span class="msg-time">' + formatTime(m.timestamp) + '</span>' : '';
-    var tokenStr = m.tokens ? ' <span class="msg-tokens">' + formatTokens(m.tokens) + ' tok</span>' : '';
-    html += '<div class="chat-msg ' + m.role + '">';
-    html += '<div class="chat-msg-header">' + role + timeStr + tokenStr + '</div>';
-    html += '<div class="chat-msg-content">' + renderMessageContent(m.content) + '</div>';
+    var tokenStr = m.tokens ? ' <span class="msg-tokens">' + formatTokens(m.tokens) + '</span>' : '';
+    var preview = esc(getMsgPreview(m.content));
+
+    // tool calls
+    var toolHtml = '';
+    if (m.tool_calls && m.tool_calls.length) {
+      for (var j = 0; j < m.tool_calls.length; j++) {
+        var tc = m.tool_calls[j];
+        var tcArgs = tc.arguments ? esc(JSON.stringify(tc.arguments, null, 2)) : '';
+        var tcContent = tc.content ? esc(tc.content) : '';
+        toolHtml += '<div class="acc-tool-call">';
+        toolHtml += '<div class="acc-tool-header" onclick="toggleAccordion(this)">🔧 ' + esc(tc.name) + ' <span class="acc-arrow">▶</span></div>';
+        toolHtml += '<div class="acc-tool-body" style="display:none">';
+        if (tcArgs) toolHtml += '<pre class="tc-args">' + tcArgs + '</pre>';
+        if (tcContent) toolHtml += '<pre class="tc-result">' + tcContent + '</pre>';
+        toolHtml += '</div></div>';
+      }
+    }
+
+    // thinking indicator
+    var thinkHtml = '';
+    if (m.is_thinking) {
+      var durStr = m.thinking_duration ? ' (' + (m.thinking_duration / 1000).toFixed(1) + 's)' : '';
+      thinkHtml = '<div class="acc-thinking">🤔 Thinking' + durStr + '</div>';
+    }
+
+    html += '<div class="acc-msg ' + m.role + '">';
+    html += '<div class="acc-msg-header" onclick="toggleAccordion(this)">';
+    html += '<span class="acc-role">' + roleLabel + '</span>';
+    html += timeStr;
+    html += tokenStr;
+    html += '<span class="acc-preview">' + preview + '</span>';
+    html += '<span class="acc-arrow">▶</span>';
+    html += '</div>';
+    html += '<div class="acc-msg-body" style="display:none">';
+    html += thinkHtml;
+    html += toolHtml;
+    if (m.content) html += '<div class="acc-msg-content">' + renderMessageContent(m.content) + '</div>';
+    html += '</div>';
     html += '</div>';
   }
   el.innerHTML = html;
+}
 
-  el.querySelectorAll('.copy-btn').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      navigator.clipboard.writeText(btn.dataset.code).then(function() {
-        var orig = btn.textContent;
-        btn.textContent = 'Copied!';
-        setTimeout(function() { btn.textContent = orig; }, 1500);
-      });
-    });
-  });
+function toggleAccordion(header) {
+  var body = header.nextElementSibling;
+  if (!body) return;
+  var isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : 'block';
+  header.querySelector('.acc-arrow').textContent = isOpen ? '▶' : '▼';
 }
 
 function renderAgents() {
@@ -361,7 +502,7 @@ function renderAgents() {
     html += '<div class="agent-card-stats">';
     html += '<div class="agent-stat"><div class="agent-stat-value">' + a.totalSessions + '</div><div class="agent-stat-label">Sessions</div></div>';
     html += '<div class="agent-stat"><div class="agent-stat-value">' + a.totalPrompts + '</div><div class="agent-stat-label">Prompts</div></div>';
-    html += '<div class="agent-stat"><div class="agent-stat-value">' + (a.totalTokens > 0 ? formatNum(a.totalTokens) : '-') + '</div><div class="agent-stat-label">Tokens</div></div>';
+    html += '<div class="agent-stat"><div class="agent-stat-value">' + (a.totalTokens > 0 ? formatNum(a.totalTokens) : '-') + '</div><div class="agent-stat-label">Context</div></div>';
     html += '<div class="agent-stat"><div class="agent-stat-value" style="font-size:11px;font-weight:400">' + (a.lastActive && a.lastActive !== 'running' ? formatDate(a.lastActive) : '-') + '</div><div class="agent-stat-label">Last Active</div></div>';
     html += '</div></div>';
   }
@@ -385,7 +526,7 @@ function showAgentDetail(agentName) {
   document.getElementById('agent-detail-stats').innerHTML =
     '<div class="agent-stat"><div class="agent-stat-value">' + agentSessions.length + '</div><div class="agent-stat-label">Sessions</div></div>' +
     '<div class="agent-stat"><div class="agent-stat-value">' + totalPrompts + '</div><div class="agent-stat-label">Prompts</div></div>' +
-    '<div class="agent-stat"><div class="agent-stat-value">' + (totalTokens > 0 ? formatNum(totalTokens) : '-') + '</div><div class="agent-stat-label">Tokens</div></div>';
+    '<div class="agent-stat"><div class="agent-stat-value">' + (totalTokens > 0 ? formatNum(totalTokens) : '-') + '</div><div class="agent-stat-label">Context</div></div>';
 
   renderAgentSessions(agentSessions);
   showPage('page-agent-detail');
@@ -406,7 +547,7 @@ function renderAgentSessions(agentSessions) {
     html += '<div class="session-title">' + esc(s.title || 'Untitled') + '</div>';
     html += '<div class="session-meta">';
     html += '<span>' + time + '</span>';
-    if (s.totalTokens) html += '<span>' + formatTokens(s.totalTokens) + ' tokens</span>';
+    if (s.totalTokens) html += '<span>' + formatTokens(s.totalTokens) + ' ctx</span>';
     if (s.model) html += '<span>' + esc(s.model) + '</span>';
     if (s.projectPath) html += '<span>' + esc(s.projectPath) + '</span>';
     html += '</div></div>';
@@ -462,7 +603,7 @@ function renderProjects() {
     html += '<div class="agent-card-stats">';
     html += '<div class="agent-stat"><div class="agent-stat-value">' + p.sessionCount + '</div><div class="agent-stat-label">Sessions</div></div>';
     html += '<div class="agent-stat"><div class="agent-stat-value">' + p.totalPrompts + '</div><div class="agent-stat-label">Prompts</div></div>';
-    html += '<div class="agent-stat"><div class="agent-stat-value">' + (p.totalTokens > 0 ? formatNum(p.totalTokens) : '-') + '</div><div class="agent-stat-label">Tokens</div></div>';
+    html += '<div class="agent-stat"><div class="agent-stat-value">' + (p.totalTokens > 0 ? formatNum(p.totalTokens) : '-') + '</div><div class="agent-stat-label">Context</div></div>';
     html += '<div class="agent-stat"><div class="agent-stat-value" style="font-size:11px;font-weight:400">' + (p.lastActive ? formatDate(p.lastActive) : '-') + '</div><div class="agent-stat-label">Last Active</div></div>';
     html += '</div>';
     html += '<div style="font-size:11px;color:var(--vscode-descriptionForeground)">Agents: ' + esc(agentsStr) + '</div>';
@@ -490,7 +631,7 @@ function showProjectDetail(projectPath) {
   document.getElementById('project-detail-stats').innerHTML =
     '<div class="agent-stat"><div class="agent-stat-value">' + projSessions.length + '</div><div class="agent-stat-label">Sessions</div></div>' +
     '<div class="agent-stat"><div class="agent-stat-value">' + totalPrompts + '</div><div class="agent-stat-label">Prompts</div></div>' +
-    '<div class="agent-stat"><div class="agent-stat-value">' + (totalTokens > 0 ? formatNum(totalTokens) : '-') + '</div><div class="agent-stat-label">Tokens</div></div>';
+    '<div class="agent-stat"><div class="agent-stat-value">' + (totalTokens > 0 ? formatNum(totalTokens) : '-') + '</div><div class="agent-stat-label">Context</div></div>';
 
   // Group sessions by agent
   const byAgent = {};
@@ -520,7 +661,7 @@ function showProjectDetail(projectPath) {
       html += '<div class="session-title">' + esc(s.title || 'Untitled') + '</div>';
       html += '<div class="session-meta">';
       html += '<span>' + time + '</span>';
-      if (s.totalTokens) html += '<span>' + formatTokens(s.totalTokens) + ' tokens</span>';
+      if (s.totalTokens) html += '<span>' + formatTokens(s.totalTokens) + ' ctx</span>';
       if (s.model) html += '<span>' + esc(s.model) + '</span>';
       html += '</div></div>';
     }
@@ -530,19 +671,160 @@ function showProjectDetail(projectPath) {
   showPage('page-project-detail');
 }
 
+let integrationInfo = null;
+let autoSaveEnabled = {};
+let searchResultsCache = null;
+let searchMessageTimer = null;
+
+function renderIntegrate() {
+  const el = document.getElementById('integrate-content');
+  if (!el) return;
+  const url = SERVER_URL || 'http://127.0.0.1:9876';
+
+  let html = '';
+
+  // === AUTOMATIC DETECTION STATUS ===
+  html += '<div class="settings-section">';
+  html += '<h2>Auto-Detected Agents</h2>';
+  html += '<p style="text-align:left;max-width:none;margin-bottom:12px">Wardy automatically captures sessions from these agents — no setup needed.</p>';
+  html += '<div class="agent-grid">';
+  if (integrationInfo && integrationInfo.agents) {
+    for (const a of integrationInfo.agents) {
+      if (!a.hasData) continue;
+      const statusDot = a.isRunning ? '<span class="agent-card-running"></span>' : '';
+      const dataBadge = a.hasDataDir ? '<span style="font-size:10px;color:var(--vscode-testing-iconPassed);font-weight:500">&#10003; data dir</span>' : '<span style="font-size:10px;color:var(--vscode-descriptionForeground)">no data dir</span>';
+      const runningBadge = a.isRunning ? '<span style="font-size:10px;color:var(--vscode-testing-iconPassed);font-weight:500;margin-left:6px">&#9679; running</span>' : '';
+      html += '<div class="info-card" style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px">';
+      html += '<div><span style="font-weight:600;font-size:13px">' + esc(a.name) + '</span> ' + runningBadge + '<br><span style="font-size:11px;color:var(--vscode-descriptionForeground)">' + dataBadge + '</span></div>';
+      if (!a.hasDataDir) {
+        html += '<button class="btn btn-secondary" data-action="enableAutoSave:' + esc(a.name) + '" style="font-size:11px;padding:4px 10px;flex-shrink:0">Enable</button>';
+      } else {
+        html += '<span style="font-size:10px;color:var(--vscode-testing-iconPassed);font-weight:500;flex-shrink:0">Auto-active &#10003;</span>';
+      }
+      html += '</div>';
+    }
+  } else {
+    html += '<div class="info-card"><p style="margin-bottom:0">Checking agent status...</p></div>';
+  }
+  html += '</div></div>';
+
+  // === HOOK-BASED AUTO-SAVE (truly automatic, no prompting needed) ===
+  html += '<div class="settings-section">';
+  html += '<h2>Auto-Save Hooks</h2>';
+  html += '<p style="text-align:left;max-width:none;margin-bottom:12px">Enable for agents that support post-conversation hooks. These run automatically after every session — <strong>zero prompting needed</strong>.</p>';
+  html += '<div class="agent-grid">';
+  const hookAgents = (KNOWN_AGENTS.length > 0 ? KNOWN_AGENTS : []).filter(function(a) { return a.name === 'Claude Code' || a.name === 'Qoder'; });
+  if (hookAgents.length === 0) {
+    html += '<div class="info-card"><p style="margin-bottom:0">No hook-compatible agents detected.</p></div>';
+  } else {
+    for (const a of hookAgents) {
+      const icon = a.icon || GENERIC_ICON;
+      html += '<div class="info-card" style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px">';
+      html += '<div style="display:flex;align-items:center;gap:8px"><span style="display:inline-flex;width:20px;height:20px;align-items:center;justify-content:center">' + icon + '</span><span style="font-weight:600;font-size:13px">' + esc(a.name) + '</span></div>';
+      if (autoSaveEnabled[a.name]) {
+        html += '<span style="font-size:10px;color:var(--vscode-testing-iconPassed);font-weight:500;flex-shrink:0">Hook Active &#10003;</span>';
+      } else {
+        html += '<button class="btn" data-action="enableAutoSave:' + esc(a.name) + '" style="font-size:11px;padding:4px 10px;flex-shrink:0">Enable Hook</button>';
+      }
+      html += '</div>';
+    }
+  }
+  html += '</div></div>';
+  // === FILE DETECTION (works for all agents automatically) ===
+  html += '<div class="settings-section">';
+  html += '<h2>Auto-Detection (Always Active)</h2>';
+  html += '<p style="text-align:left;max-width:none;margin-bottom:12px">Wardy automatically watches agent data directories and captures conversations from files. This works for all agents with <strong>no setup and no prompting</strong>.</p>';
+  html += '<div class="info-card" style="padding:12px">';
+  html += '<div style="display:flex;align-items:center;gap:8px"><span style="font-size:10px;color:var(--vscode-testing-iconPassed);font-weight:500">&#10003;</span><span style="font-size:12px">Claude Code — watches ~/.claude/conversations/</span></div>';
+  html += '<div style="display:flex;align-items:center;gap:8px;margin-top:6px"><span style="font-size:10px;color:var(--vscode-testing-iconPassed);font-weight:500">&#10003;</span><span style="font-size:12px">OpenCode — watches ~/.opencode/conversations/ + .dat files</span></div>';
+  html += '<div style="display:flex;align-items:center;gap:8px;margin-top:6px"><span style="font-size:10px;color:var(--vscode-testing-iconPassed);font-weight:500">&#10003;</span><span style="font-size:12px">Cursor — watches ~/.cursor/conversations/</span></div>';
+  html += '<div style="display:flex;align-items:center;gap:8px;margin-top:6px"><span style="font-size:10px;color:var(--vscode-testing-iconPassed);font-weight:500">&#10003;</span><span style="font-size:12px">Codex CLI, Aider, GitHub Copilot — via process detection</span></div>';
+  html += '</div></div>';
+
+  // === HTTP API ENDPOINT ===
+  html += '<div class="settings-section">';
+  html += '<h2>HTTP API</h2>';
+  html += '<p style="text-align:left;max-width:none;margin-bottom:12px">Send session data from any AI agent or script via HTTP POST.</p>';
+  html += '<div class="info-card">';
+  html += '<label>Endpoint URL</label>';
+  html += '<span id="server-url" style="font-size:13px;word-break:break-all;user-select:all;cursor:pointer;color:var(--vscode-textLink-foreground)">' + esc(url) + '/api/save</span>';
+  html += '</div>';
+  html += '<div class="info-card">';
+  html += '<label>Health Check</label>';
+  html += '<span style="font-size:13px">' + esc(url) + '/api/health</span>';
+  html += '</div>';
+  html += '<div style="display:flex;gap:8px;margin-top:8px">';
+  html += '<button class="btn btn-secondary" data-action="copyEndpoint" style="flex:1;font-size:11px;padding:6px">Copy Endpoint URL</button>';
+  html += '<button class="btn btn-secondary" data-action="copyCurlExample" style="flex:1;font-size:11px;padding:6px">Copy curl Example</button>';
+  html += '</div>';
+  html += '</div>';
+
+  // === COPY AGENT PROMPT ===
+  html += '<div class="settings-section">';
+  html += '<h2>Agent Prompt</h2>';
+  html += '<p style="text-align:left;max-width:none;margin-bottom:12px">Copy this prompt and paste it into your agent\'s system instructions. The agent will automatically save every conversation.</p>';
+  html += '<div class="info-card">';
+  html += '<pre id="agent-prompt-text" style="font-size:11px;background:var(--vscode-editor-background);padding:8px;border-radius:4px;overflow-x:auto;white-space:pre-wrap;word-break:break-word;max-height:200px;overflow-y:auto">Loading prompt...</pre>';
+  html += '<div style="display:flex;gap:8px;margin-top:8px">';
+  html += '<button class="btn" data-action="copyAgentPrompt" style="flex:1;font-size:11px;padding:6px">Copy Prompt</button>';
+  html += '<button class="btn btn-secondary" data-action="refreshAgentPrompt" style="flex:1;font-size:11px;padding:6px">Refresh</button>';
+  html += '</div></div></div>';
+
+  // === USAGE EXAMPLE ===
+  html += '<div class="settings-section">';
+  html += '<h2>Usage Example (curl)</h2>';
+  html += '<div class="info-card">';
+  html += '<pre style="font-size:11px;background:var(--vscode-editor-background);padding:8px;border-radius:4px;overflow-x:auto;white-space:pre-wrap;word-break:break-word">curl -X POST ' + esc(url) + '/api/save \\\n  -H "Content-Type: application/json" \\\n  -d \'{\n    "agent": "OpenCode",\n    "model": "claude-sonnet-4",\n    "project": "/path/to/project",\n    "messages": [\n      {"role": "user", "content": "hello", "timestamp": "2025-01-01T00:00:00Z"},\n      {"role": "assistant", "content": "hi", "timestamp": "2025-01-01T00:00:05Z"}\n    ]\n  }\'</pre>';
+  html += '</div></div>';
+
+  el.innerHTML = html;
+  requestIntegrationInfo();
+}
+
+function requestIntegrationInfo() {
+  vscode.postMessage({ command: 'getIntegrationInfo' });
+  vscode.postMessage({ command: 'copyAgentPrompt' });
+}
+
 function renderSearch() {
   const el = document.getElementById('search-content');
   if (!el) return;
   const q = searchQuery;
   if (!q) {
-    el.innerHTML = '<div class="session-empty"><p>Type to search across sessions, agents, and projects.</p></div>';
+    searchResultsCache = null;
+    el.innerHTML = '<div class="session-empty"><p>Type to search across sessions, messages, agents, and projects.</p></div>';
     return;
   }
+
+  // Debounce: send search query to extension after 300ms
+  if (searchMessageTimer) clearTimeout(searchMessageTimer);
+  searchMessageTimer = setTimeout(function() {
+    vscode.postMessage({ command: 'searchMessages', query: q });
+  }, 300);
 
   let totalResults = 0;
   let html = '';
 
-  // sessions
+  // Message content search results (from extension)
+  if (searchResultsCache && searchResultsCache.length > 0) {
+    totalResults += searchResultsCache.length;
+    html += '<div style="font-size:12px;font-weight:600;margin-bottom:8px">Messages (' + searchResultsCache.length + ')</div>';
+    html += '<div class="session-list">';
+    for (const r of searchResultsCache.slice(0, 20)) {
+      const time = r.startTime ? formatDate(r.startTime) + ' ' + formatTime(r.startTime) : '';
+      html += '<div class="session-item" data-session-id="' + r.sessionId + '">';
+      html += '<div class="session-title">' + esc(r.title) + '</div>';
+      html += '<div class="session-meta"><span>' + esc(r.agentName) + '</span><span>' + time + '</span></div>';
+      for (const snip of r.snippets) {
+        html += '<div style="font-size:11px;color:var(--vscode-descriptionForeground);padding:4px 0;border-top:1px solid var(--vscode-dropdown-border);margin-top:4px;line-height:1.4">' + esc(snip) + '</div>';
+      }
+      html += '</div>';
+    }
+    if (searchResultsCache.length > 20) html += '<div style="font-size:11px;color:var(--vscode-descriptionForeground);text-align:center;padding:8px">+ ' + (searchResultsCache.length - 20) + ' more</div>';
+    html += '</div>';
+  }
+
+  // sessions (metadata match)
   const matchedSessions = sessions.filter(s =>
     (s.title || '').toLowerCase().includes(q) ||
     (s.agentName || '').toLowerCase().includes(q) ||
@@ -551,7 +833,7 @@ function renderSearch() {
   );
   if (matchedSessions.length > 0) {
     totalResults += matchedSessions.length;
-    html += '<div style="font-size:12px;font-weight:600;margin-bottom:8px">Sessions (' + matchedSessions.length + ')</div>';
+    html += '<div style="font-size:12px;font-weight:600;margin:12px 0 8px">Sessions (' + matchedSessions.length + ')</div>';
     html += '<div class="session-list">';
     for (const s of matchedSessions.slice(0, 20)) {
       const info = KNOWN_AGENTS.find(k => k.name === s.agentName) || { icon: GENERIC_ICON };
@@ -599,8 +881,10 @@ function renderSearch() {
     html += '</div>';
   }
 
-  if (totalResults === 0) {
+  if (searchResultsCache === null && totalResults === 0) {
     el.innerHTML = '<div class="session-empty"><p>No results for "' + esc(q) + '".</p></div>';
+  } else if (totalResults === 0 && searchResultsCache && searchResultsCache.length === 0) {
+    el.innerHTML = '<div style="font-size:11px;color:var(--vscode-descriptionForeground);margin-bottom:8px">0 results for "' + esc(q) + '"</div>' + html;
   } else {
     el.innerHTML = '<div style="font-size:11px;color:var(--vscode-descriptionForeground);margin-bottom:8px">' + totalResults + ' result' + (totalResults > 1 ? 's' : '') + ' for "' + esc(q) + '"</div>' + html;
   }
@@ -626,10 +910,36 @@ function formatTime(iso) {
   } catch { return ''; }
 }
 
+function renderLearn() {
+  const el = document.getElementById('learn-content');
+  if (!el) return;
+  el.innerHTML =
+    '<div class="settings-section" style="text-align:left">' +
+    '<h2 style="font-size:15px;margin-bottom:16px">How Wardy Works</h2>' +
+    '<div class="info-card"><label>Auto-Detection</label><p style="margin-top:4px;margin-bottom:0">Wardy automatically watches agent data directories (<code>~/.opencode/conversations/</code>, <code>~/.claude/conversations/</code>, etc.) and imports sessions as they are created. This works for all supported agents with <strong>zero configuration</strong>.</p></div>' +
+    '<div class="info-card"><label>Agent Hooks</label><p style="margin-top:4px;margin-bottom:0">For <strong>Claude Code</strong> and <strong>Qoder</strong>, Wardy can install post-conversation hooks that automatically save every session. Go to the <strong>Integrate</strong> tab and click Enable Hook.</p></div>' +
+    '<div class="info-card"><label>Context vs Tokens</label><p style="margin-top:4px;margin-bottom:0">The <strong>Context</strong> number shown across the UI is an estimate of total tokens (prompt + completion) for a session. This is approximated from message length and may differ from actual API usage.</p></div>' +
+    '<div class="info-card"><label>Data Storage</label><p style="margin-top:4px;margin-bottom:0">All data is stored locally. You can change the storage location in <strong>Settings &rarr; Storage</strong>.</p></div>' +
+    '<div class="info-card"><label>HTTP API</label><p style="margin-top:4px;margin-bottom:0">Wardy runs a local HTTP server on port 9876. Any agent or script can POST session data to <code>http://127.0.0.1:9876/api/save</code>. See the <strong>Integrate</strong> tab for details.</p></div>' +
+    '</div>';
+}
+
 function esc(str) {
   const d = document.createElement('div');
   d.textContent = str;
   return d.innerHTML;
 }
+
+// delegated copy-btn handler for dynamically rendered code blocks
+document.addEventListener('click', function(e) {
+  var btn = e.target.closest('.copy-btn');
+  if (btn && btn.dataset.code) {
+    navigator.clipboard.writeText(btn.dataset.code).then(function() {
+      var orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(function() { btn.textContent = orig; }, 1500);
+    });
+  }
+});
 
 setTimeout(() => { renderAgents(); renderActivity(); }, 100);

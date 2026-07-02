@@ -2,7 +2,7 @@
   "name": "wardy",
   "displayName": "Wardy - agentic interaction data Collector",
   "description": "Wardy - agentic interaction data Collector",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "Wardy",
   "license": "MIT",
   "homepage": "https://wardy.run",
@@ -42,11 +42,16 @@
     "configuration": {
       "title": "Wardy",
       "properties": {
-        "wardy.storagePath": {
-          "type": "string",
-          "default": "",
-          "description": "Custom path for Wardy data storage. Leave empty to use the default extension storage location."
-        }
+    "wardy.storagePath": {
+      "type": "string",
+      "default": "",
+      "description": "Custom path for Wardy data storage. Leave empty to use the default extension storage location."
+    },
+    "wardy.serverPort": {
+      "type": "number",
+      "default": 9876,
+      "description": "Port for the Wardy HTTP API server. Set to 0 to disable."
+    }
       }
     },
     "viewsContainers": {
@@ -68,18 +73,6 @@
       ]
     },
     "commands": [
-      {
-        "command": "wardy.login",
-        "title": "Log in to Wardy Cloud"
-      },
-      {
-        "command": "wardy.createAccount",
-        "title": "Create Wardy Account"
-      },
-      {
-        "command": "wardy.skip",
-        "title": "Use Wardy with Local Data"
-      },
       {
         "command": "wardy.settings",
         "title": "Wardy Settings",
